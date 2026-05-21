@@ -64,7 +64,9 @@ export async function POST(request: NextRequest) {
 
   if (upload.error) {
     return NextResponse.json(
-      { error: "Could not upload recording." },
+      {
+        error: `Could not upload recording: ${upload.error.message}`,
+      },
       { status: 500 },
     );
   }
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
   if (insertError) {
     await supabase.storage.from("whispers").remove([storagePath]);
     return NextResponse.json(
-      { error: "Could not save submission." },
+      { error: `Could not save submission: ${insertError.message}` },
       { status: 500 },
     );
   }
