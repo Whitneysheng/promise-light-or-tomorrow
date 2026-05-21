@@ -104,6 +104,10 @@ Use `app.whitneysheng.com` so your existing `whitneysheng.com` site can remain u
 8. Click **Unlock audio** once.
 9. Use a foot pedal that sends `Space`, `Enter`, or `ArrowRight`.
 
+To reopen submissions for another test or performance, use **Reset and
+reopen** on `/admin`. This deletes the old audio files, submission rows, and
+cue assignments from Supabase before setting the performance back to `open`.
+
 ## Foot Pedal
 
 Use a Bluetooth or USB pedal that emulates keyboard input. Configure it to send one of:

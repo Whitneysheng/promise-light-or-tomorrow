@@ -328,6 +328,10 @@ h2 {
   margin-bottom: 0;
 }
 
+.warning-band {
+  border-color: rgba(143, 55, 72, 0.35);
+}
+
 .two-column {
   display: grid;
   gap: 1rem;

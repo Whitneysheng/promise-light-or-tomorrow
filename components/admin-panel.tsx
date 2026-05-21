@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCcw, Shuffle, ShieldCheck } from "lucide-react";
+import { RefreshCcw, RotateCcw, Shuffle, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 type AdminData = {
@@ -63,6 +63,31 @@ export function AdminPanel() {
 
     if (!response.ok) {
       setError(payload.error ?? "Could not close performance.");
+      return;
+    }
+
+    await loadSummary();
+  }
+
+  async function resetPerformance() {
+    const confirmed = window.confirm(
+      "This will reopen submissions and permanently delete all current recordings, submission rows, and cue assignments. Continue?",
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setError(null);
+    const response = await fetch("/api/reset-performance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ passcode }),
+    });
+    const payload = await response.json();
+    setBusy(false);
+
+    if (!response.ok) {
+      setError(payload.error ?? "Could not reset performance.");
       return;
     }
 
@@ -141,6 +166,24 @@ export function AdminPanel() {
             <button onClick={closePerformance} disabled={busy || !passcode}>
               <Shuffle size={18} />
               Close submissions
+            </button>
+          </section>
+
+          <section className="action-band warning-band">
+            <div>
+              <h2>Reset for a new test or performance</h2>
+              <p>
+                This reopens submissions and deletes the current recordings,
+                submission rows, and cue map from Supabase.
+              </p>
+            </div>
+            <button
+              className="danger"
+              onClick={resetPerformance}
+              disabled={busy || !passcode}
+            >
+              <RotateCcw size={18} />
+              Reset and reopen
             </button>
           </section>
 
