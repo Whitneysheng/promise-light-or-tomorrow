@@ -27,7 +27,10 @@ create table if not exists submissions (
   storage_path text not null,
   duration_seconds numeric,
   created_at timestamptz not null default now(),
-  consent_confirmed boolean not null default false
+  consent_confirmed boolean not null default false,
+  transcript text,
+  text_match_score numeric,
+  processing_notes text
 );
 
 create table if not exists cues (
@@ -45,9 +48,17 @@ create table if not exists cue_assignments (
   cue_id uuid not null references cues(id) on delete cascade,
   submission_id uuid references submissions(id) on delete set null,
   assignment_index integer not null,
-  unique (performance_id, cue_id),
+  start_offset_seconds numeric not null default 0,
+  gain numeric not null default 1,
   unique (performance_id, assignment_index)
 );
+
+alter table submissions add column if not exists transcript text;
+alter table submissions add column if not exists text_match_score numeric;
+alter table submissions add column if not exists processing_notes text;
+alter table cue_assignments add column if not exists start_offset_seconds numeric not null default 0;
+alter table cue_assignments add column if not exists gain numeric not null default 1;
+alter table cue_assignments drop constraint if exists cue_assignments_performance_id_cue_id_key;
 
 alter table performances enable row level security;
 alter table fragments enable row level security;
@@ -94,7 +105,17 @@ from perf,
     ('Perhaps every time I said Love, I meant History', 11),
     ('Love is my first choice, but', 12),
     ('The better things can only be gathered by a pen', 13),
-    ('It''s spring now', 14)
+    ('It''s spring now', 14),
+    ('A door remembers every hand', 15),
+    ('The room was listening before us', 16),
+    ('I kept the future in my mouth', 17),
+    ('Your name arrived as weather', 18),
+    ('History sits beside the cup', 19),
+    ('The lamp keeps choosing us', 20),
+    ('Some promises are made of air', 21),
+    ('I wanted the ordinary to stay', 22),
+    ('The street answered softly', 23),
+    ('Tomorrow had no witness yet', 24)
   ) as seed(fragment_text, display_order)
 on conflict do nothing;
 
@@ -105,10 +126,14 @@ insert into cues (performance_id, label, order_index, treatment)
 select perf.id, label, order_index, treatment::jsonb
 from perf,
   (values
-    ('bar 10', 1, '{"name":"close breath","gain":0.72,"loopStart":0,"loopEnd":2.6,"filterType":"lowpass","filterFrequency":2600,"distortion":0.04,"reverb":0.05,"playbackRate":1}'),
-    ('bar 12', 2, '{"name":"brittle band","gain":0.64,"loopStart":0.15,"loopEnd":1.9,"filterType":"bandpass","filterFrequency":1450,"distortion":0.48,"delay":0.08,"reverb":0.12,"playbackRate":1.03}'),
-    ('bar 18', 3, '{"name":"receding room","gain":0.58,"loopStart":0,"loopEnd":4.2,"filterType":"highpass","filterFrequency":420,"distortion":0.09,"reverb":0.68,"playbackRate":0.82,"reverse":true}'),
-    ('bar 24', 4, '{"name":"stuttered pulse","gain":0.6,"loopStart":0.25,"loopEnd":1.15,"filterType":"bandpass","filterFrequency":880,"distortion":0.22,"delay":0.18,"reverb":0.2,"playbackRate":1.18}'),
-    ('bar 31', 5, '{"name":"almost intelligible","gain":0.7,"loopStart":0,"loopEnd":3.3,"filterType":"lowpass","filterFrequency":1900,"distortion":0.12,"reverb":0.34,"playbackRate":0.94}')
+    ('bar 10', 1, '{"name":"single witness","texture":"solo","voiceCount":1,"gain":0.72,"loopStart":0,"loopEnd":2.6,"filterType":"lowpass","filterFrequency":2600,"distortion":0.04,"reverb":0.05,"playbackRate":1}'),
+    ('bar 12', 2, '{"name":"three-line handoff","texture":"sequence","voiceCount":3,"staggerSeconds":1.6,"gain":0.74,"loopStart":0,"loopEnd":2.8,"filterType":"bandpass","filterFrequency":1450,"distortion":0.18,"delay":0.04,"reverb":0.12,"playbackRate":1.03}'),
+    ('bar 18', 3, '{"name":"room of almost words","texture":"cacophony","voiceCount":7,"staggerSeconds":0.32,"gain":0.42,"loopStart":0,"loopEnd":4.2,"filterType":"highpass","filterFrequency":420,"distortion":0.09,"reverb":0.68,"playbackRate":0.82,"reverse":true}'),
+    ('bar 24', 4, '{"name":"stuttered pulse","texture":"solo","voiceCount":1,"gain":0.6,"loopStart":0.25,"loopEnd":1.15,"filterType":"bandpass","filterFrequency":880,"distortion":0.22,"delay":0.18,"reverb":0.2,"playbackRate":1.18}'),
+    ('bar 31', 5, '{"name":"almost intelligible braid","texture":"sequence","voiceCount":5,"staggerSeconds":1.1,"gain":0.62,"loopStart":0,"loopEnd":3.3,"filterType":"lowpass","filterFrequency":1900,"distortion":0.12,"reverb":0.34,"playbackRate":0.94}'),
+    ('bar 38', 6, '{"name":"public cloud","texture":"cacophony","voiceCount":11,"staggerSeconds":0.18,"gain":0.34,"loopStart":0,"loopEnd":3.8,"filterType":"bandpass","filterFrequency":1200,"distortion":0.2,"delay":0.11,"reverb":0.55,"playbackRate":1.08}'),
+    ('bar 44', 7, '{"name":"one clear return","texture":"solo","voiceCount":1,"gain":0.8,"loopStart":0,"loopEnd":3,"filterType":"lowpass","filterFrequency":3200,"distortion":0.02,"reverb":0.1,"playbackRate":1}'),
+    ('bar 52', 8, '{"name":"supercollider bed cue","texture":"soundtrack","voiceCount":0,"gain":0,"reverb":0}')
   ) as seed(label, order_index, treatment)
-on conflict do nothing;
+on conflict (performance_id, order_index)
+do update set label = excluded.label, treatment = excluded.treatment;

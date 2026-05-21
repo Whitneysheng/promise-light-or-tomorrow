@@ -36,3 +36,16 @@ export function seededShuffle<T>(items: T[], seed: string) {
 
   return copy;
 }
+
+export function randomShuffle<T>(items: T[]) {
+  const copy = [...items];
+  const randomValues = new Uint32Array(copy.length);
+  crypto.getRandomValues(randomValues);
+
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = randomValues[i] % (i + 1);
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+
+  return copy;
+}

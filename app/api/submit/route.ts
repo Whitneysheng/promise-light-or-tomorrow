@@ -18,6 +18,9 @@ export async function POST(request: NextRequest) {
   const performanceId = String(formData.get("performanceId") ?? "");
   const fragmentId = String(formData.get("fragmentId") ?? "");
   const durationSeconds = Number(formData.get("durationSeconds") ?? 0);
+  const transcript = String(formData.get("transcript") ?? "").trim();
+  const textMatchScore = Number(formData.get("textMatchScore") ?? NaN);
+  const processingNotes = String(formData.get("processingNotes") ?? "").trim();
   const audio = formData.get("audio");
 
   if (!performanceId || !fragmentId || !(audio instanceof File)) {
@@ -52,7 +55,11 @@ export async function POST(request: NextRequest) {
   }
 
   const submissionId = crypto.randomUUID();
-  const extension = audio.type.includes("mp4") ? "mp4" : "webm";
+  const extension = audio.type.includes("wav")
+    ? "wav"
+    : audio.type.includes("mp4")
+      ? "mp4"
+      : "webm";
   const storagePath = `performances/${performanceId}/submissions/${submissionId}.${extension}`;
 
   const upload = await supabase.storage
@@ -82,6 +89,9 @@ export async function POST(request: NextRequest) {
         ? durationSeconds
         : null,
       consent_confirmed: false,
+      transcript: transcript || null,
+      text_match_score: Number.isFinite(textMatchScore) ? textMatchScore : null,
+      processing_notes: processingNotes || null,
     })
     .select("*")
     .single();

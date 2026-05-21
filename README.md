@@ -1,13 +1,14 @@
 # promise light or tomorrow
 
-A participatory concert web app for audience whisper submissions and performer-triggered playback cues.
+A participatory concert web app for audience voice submissions and performer-triggered playback cues.
 
 ## What This App Does
 
-- Audience members open `/`, choose a fragment, record a whisper, and submit it.
+- Audience members open `/`, receive five random fragments from a larger pool, choose one, speak it normally, and submit it.
+- The browser tries to level the recording, reduce steady background noise, and compare detected speech against the selected text before submission.
 - The admin opens `/admin`, watches submissions arrive, then closes the performance to generate a random cue map.
 - The performer opens `/perform`, loads the cue map, and advances cues with a keyboard-style foot pedal.
-- The whisper assigned to a cue changes each performance. The cue treatment stays fixed.
+- The voice material assigned to a cue changes each performance. Cue treatments stay fixed and can be solo, sequential, cacophonous, or a prepared SuperCollider soundtrack cue.
 
 ## Local Setup
 
@@ -68,6 +69,15 @@ A participatory concert web app for audience whisper submissions and performer-t
 The service role key is used only by server-side Next.js API routes. Do not expose it in browser code.
 
 The `whispers` storage bucket should stay private. The performer page receives short-lived signed URLs only after the admin passcode is accepted.
+
+## Artistic / Technical Design
+
+- The fragment pool is larger than what each audience member sees. `/api/bootstrap` shuffles the full pool per visitor and returns five fragments, so people are not all drawn to whatever sits next to the record button.
+- The audience page asks for normal speaking voice rather than whispering. This gives the performer more usable signal and leaves intimacy to the musical treatment instead of relying on quiet recordings.
+- Each recording is locally processed with a high-pass filter, dynamics compression, a simple noise gate, and peak normalization before upload. This is not mastering, but it gives the cue engine more even material.
+- When browser speech recognition is available, the page compares detected words to the selected fragment and blocks obvious wrong-text takes. Unsupported browsers can still submit, so venue compatibility remains intact.
+- Closing submissions maps the uneven audience material into cue textures: solo cues use one clear recording, sequence cues stagger several recordings one after another, cacophony cues layer many voices with small offsets, and soundtrack cues reserve space for prepared SuperCollider material.
+- Empty fragments are allowed. Crowded fragments are allowed. The cue map works from whatever submissions exist at closing time.
 
 ## Vercel Hosting
 

@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { demoFragments, demoModeEnabled, demoPerformance } from "@/lib/demo-data";
+import { randomShuffle } from "@/lib/random";
 import { activeSlug, getSupabaseAdmin } from "@/lib/supabase-server";
+
+const AUDIENCE_FRAGMENT_COUNT = 5;
 
 export async function GET() {
   if (demoModeEnabled()) {
     return NextResponse.json({
       performance: demoPerformance,
-      fragments: demoFragments,
+      fragments: randomShuffle(demoFragments).slice(0, AUDIENCE_FRAGMENT_COUNT),
       demoMode: true,
     });
   }
@@ -39,5 +42,8 @@ export async function GET() {
     );
   }
 
-  return NextResponse.json({ performance, fragments });
+  return NextResponse.json({
+    performance,
+    fragments: randomShuffle(fragments ?? []).slice(0, AUDIENCE_FRAGMENT_COUNT),
+  });
 }

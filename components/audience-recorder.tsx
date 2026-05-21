@@ -12,6 +12,171 @@ type Bootstrap = {
 
 type RecorderState = "idle" | "recording" | "review" | "submitting" | "submitted";
 
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<{
+    isFinal: boolean;
+    0: { transcript: string };
+  }>;
+};
+
+function getSpeechRecognition() {
+  const speechWindow = window as typeof window & {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+}
+
+function words(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function textMatchScore(expected: string, actual: string) {
+  const expectedWords = new Set(words(expected));
+  const actualWords = new Set(words(actual));
+  if (!expectedWords.size || !actualWords.size) return 0;
+
+  let matches = 0;
+  expectedWords.forEach((word) => {
+    if (actualWords.has(word)) matches += 1;
+  });
+
+  return matches / expectedWords.size;
+}
+
+function encodeWav(buffer: AudioBuffer) {
+  const channels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const samples = buffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = samples * blockAlign;
+  const arrayBuffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(arrayBuffer);
+  let offset = 0;
+
+  function writeString(value: string) {
+    for (let i = 0; i < value.length; i += 1) {
+      view.setUint8(offset, value.charCodeAt(i));
+      offset += 1;
+    }
+  }
+
+  writeString("RIFF");
+  view.setUint32(offset, 36 + dataSize, true);
+  offset += 4;
+  writeString("WAVE");
+  writeString("fmt ");
+  view.setUint32(offset, 16, true);
+  offset += 4;
+  view.setUint16(offset, 1, true);
+  offset += 2;
+  view.setUint16(offset, channels, true);
+  offset += 2;
+  view.setUint32(offset, sampleRate, true);
+  offset += 4;
+  view.setUint32(offset, sampleRate * blockAlign, true);
+  offset += 4;
+  view.setUint16(offset, blockAlign, true);
+  offset += 2;
+  view.setUint16(offset, bytesPerSample * 8, true);
+  offset += 2;
+  writeString("data");
+  view.setUint32(offset, dataSize, true);
+  offset += 4;
+
+  for (let i = 0; i < samples; i += 1) {
+    for (let channel = 0; channel < channels; channel += 1) {
+      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+
+  return new Blob([arrayBuffer], { type: "audio/wav" });
+}
+
+async function cleanAndNormalizeAudio(blob: Blob) {
+  const audioContext = new AudioContext();
+  const input = await audioContext.decodeAudioData(await blob.arrayBuffer());
+  const offline = new OfflineAudioContext(
+    input.numberOfChannels,
+    input.length,
+    input.sampleRate,
+  );
+  const source = offline.createBufferSource();
+  const highpass = offline.createBiquadFilter();
+  const compressor = offline.createDynamicsCompressor();
+
+  source.buffer = input;
+  highpass.type = "highpass";
+  highpass.frequency.value = 85;
+  compressor.threshold.value = -34;
+  compressor.knee.value = 22;
+  compressor.ratio.value = 3;
+  compressor.attack.value = 0.005;
+  compressor.release.value = 0.18;
+
+  source.connect(highpass);
+  highpass.connect(compressor);
+  compressor.connect(offline.destination);
+  source.start();
+
+  const rendered = await offline.startRendering();
+  await audioContext.close();
+
+  const floorSamples = Math.min(rendered.length, Math.floor(rendered.sampleRate * 0.35));
+  let noiseTotal = 0;
+  let noiseCount = 0;
+  let peak = 0;
+
+  for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
+    const data = rendered.getChannelData(channel);
+    for (let i = 0; i < floorSamples; i += 1) {
+      noiseTotal += data[i] * data[i];
+      noiseCount += 1;
+    }
+  }
+
+  const noiseFloor = Math.sqrt(noiseTotal / Math.max(1, noiseCount));
+  const gate = Math.max(0.006, noiseFloor * 1.6);
+
+  for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
+    const data = rendered.getChannelData(channel);
+    for (let i = 0; i < data.length; i += 1) {
+      if (Math.abs(data[i]) < gate) data[i] *= 0.18;
+      peak = Math.max(peak, Math.abs(data[i]));
+    }
+  }
+
+  const targetPeak = 0.89;
+  const gain = peak > 0 ? Math.min(8, targetPeak / peak) : 1;
+  for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
+    const data = rendered.getChannelData(channel);
+    for (let i = 0; i < data.length; i += 1) {
+      data[i] = Math.max(-1, Math.min(1, data[i] * gain));
+    }
+  }
+
+  return encodeWav(rendered);
+}
+
 export function AudienceRecorder() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [selectedFragment, setSelectedFragment] = useState<string>("");
@@ -20,7 +185,11 @@ export function AudienceRecorder() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState("");
+  const [matchScore, setMatchScore] = useState<number | null>(null);
+  const [processing, setProcessing] = useState(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const recognition = useRef<SpeechRecognitionLike | null>(null);
   const startedAt = useRef<number>(0);
   const stream = useRef<MediaStream | null>(null);
 
@@ -76,6 +245,8 @@ export function AudienceRecorder() {
   async function startRecording() {
     setError(null);
     setAudioBlob(null);
+    setTranscript("");
+    setMatchScore(null);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(null);
 
@@ -89,9 +260,9 @@ export function AudienceRecorder() {
 
       const userStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
       });
       stream.current = userStream;
@@ -113,29 +284,71 @@ export function AudienceRecorder() {
         const blob = new Blob(chunks, {
           type: recorder.mimeType || "audio/webm",
         });
-        setAudioBlob(blob);
-        setAudioUrl(URL.createObjectURL(blob));
+        setProcessing(true);
+        cleanAndNormalizeAudio(blob)
+          .then((processed) => {
+            setAudioBlob(processed);
+            setAudioUrl(URL.createObjectURL(processed));
+          })
+          .catch(() => {
+            setAudioBlob(blob);
+            setAudioUrl(URL.createObjectURL(blob));
+            setError("Audio cleanup was not available, so the raw recording is ready.");
+          })
+          .finally(() => setProcessing(false));
         setDuration((performance.now() - startedAt.current) / 1000);
         setRecorderState("review");
         userStream.getTracks().forEach((track) => track.stop());
       };
 
       mediaRecorder.current = recorder;
+      const Recognition = getSpeechRecognition();
+      if (Recognition) {
+        const speech = new Recognition();
+        speech.continuous = true;
+        speech.interimResults = true;
+        speech.lang = "en-US";
+        speech.onresult = (event) => {
+          let recognized = "";
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            recognized += event.results[i][0].transcript;
+          }
+          setTranscript((current) => `${current} ${recognized}`.trim());
+        };
+        speech.onend = () => {
+          recognition.current = null;
+        };
+        try {
+          speech.start();
+          recognition.current = speech;
+        } catch {
+          recognition.current = null;
+        }
+      }
       startedAt.current = performance.now();
       recorder.start();
       setRecorderState("recording");
     } catch {
-      setError("Microphone permission is needed to record your whisper.");
+      setError("Microphone permission is needed to record your voice.");
     }
   }
 
   function stopRecording() {
+    recognition.current?.stop();
+    recognition.current = null;
     mediaRecorder.current?.stop();
     setRecorderState("idle");
   }
 
   async function submitRecording() {
     if (!bootstrap || !audioBlob || !selectedFragment) return;
+    const score = transcript ? textMatchScore(selectedText, transcript) : null;
+    setMatchScore(score);
+    if (score !== null && score < 0.48) {
+      setError("The detected words do not seem close enough to the selected line. Please record it again.");
+      return;
+    }
+
     setRecorderState("submitting");
     setError(null);
 
@@ -143,7 +356,10 @@ export function AudienceRecorder() {
     formData.append("performanceId", bootstrap.performance.id);
     formData.append("fragmentId", selectedFragment);
     formData.append("durationSeconds", String(duration));
-    formData.append("audio", audioBlob, "whisper.webm");
+    formData.append("transcript", transcript);
+    formData.append("textMatchScore", score === null ? "" : String(score));
+    formData.append("processingNotes", "browser high-pass, noise gate, compression, peak normalization");
+    formData.append("audio", audioBlob, audioBlob.type.includes("wav") ? "voice.wav" : "voice.webm");
 
     const response = await fetch("/api/submit", {
       method: "POST",
@@ -177,16 +393,16 @@ export function AudienceRecorder() {
   return (
     <main className="audience-shell">
       <section className="audience-panel">
-        <p className="eyebrow">participatory whisper</p>
+        <p className="eyebrow">participatory voice</p>
         <h1>promise light or tomorrow</h1>
         <p className="intro">
-          Choose one line that resonates with you. Whisper it once into this
+          Choose one line that resonates with you. Speak it once into this
           page. Your recording becomes part of tonight&apos;s electronic texture.
         </p>
 
         <div className="workflow-strip" aria-label="Recording workflow">
           <span>1. Choose a line</span>
-          <span>2. Record a whisper</span>
+          <span>2. Speak normally</span>
           <span>3. Review and submit</span>
         </div>
 
@@ -204,7 +420,7 @@ export function AudienceRecorder() {
         )}
 
         <fieldset className="fragment-grid" disabled={!isOpen || recorderState === "submitted"}>
-          <legend>Choose one line to whisper</legend>
+          <legend>Choose one line to speak</legend>
           {bootstrap.fragments.map((fragment) => (
             <label
               className={
@@ -236,13 +452,27 @@ export function AudienceRecorder() {
           <audio className="review-player" controls src={audioUrl} />
         )}
 
+        {processing && <p className="muted">Cleaning noise and leveling the recording.</p>}
+
+        {transcript && recorderState !== "submitted" && (
+          <p className="selected-line">
+            Detected: <strong>&quot;{transcript}&quot;</strong>
+          </p>
+        )}
+
+        {matchScore !== null && (
+          <p className="selected-line">
+            Text match: <strong>{Math.round(matchScore * 100)}%</strong>
+          </p>
+        )}
+
         {error && <p className="error-text">{error}</p>}
 
         <div className="button-row">
           {recorderState === "idle" && (
             <button disabled={!isOpen} onClick={startRecording}>
               <Mic size={18} />
-              Record whisper
+              Record voice
             </button>
           )}
           {recorderState === "recording" && (
@@ -257,7 +487,7 @@ export function AudienceRecorder() {
                 <RotateCcw size={18} />
                 Record again
               </button>
-              <button onClick={submitRecording}>
+              <button onClick={submitRecording} disabled={processing}>
                 <Send size={18} />
                 Submit
               </button>

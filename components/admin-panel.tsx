@@ -12,7 +12,12 @@ type AdminData = {
   };
   fragments: unknown[];
   cues: unknown[];
-  submissions: Array<{ id: string; created_at: string; fragments?: { text: string } }>;
+  submissions: Array<{
+    id: string;
+    created_at: string;
+    text_match_score?: number | null;
+    fragments?: { text: string };
+  }>;
   assignments: Array<{
     id: string;
     cues?: { label: string };
@@ -130,7 +135,7 @@ export function AdminPanel() {
               <h2>Close and randomize</h2>
               <p>
                 This freezes tonight&apos;s mapping. The audience material is
-                random; each bar&apos;s treatment remains fixed.
+                randomized into solo, sequential, and staggered texture cues.
               </p>
             </div>
             <button onClick={closePerformance} disabled={busy || !passcode}>
@@ -146,7 +151,11 @@ export function AdminPanel() {
                 {data.submissions.map((submission) => (
                   <div className="list-row" key={submission.id}>
                     <strong>{submission.fragments?.text ?? "fragment"}</strong>
-                    <span>{new Date(submission.created_at).toLocaleTimeString()}</span>
+                    <span>
+                      {submission.text_match_score == null
+                        ? new Date(submission.created_at).toLocaleTimeString()
+                        : `${Math.round(submission.text_match_score * 100)}% match`}
+                    </span>
                   </div>
                 ))}
               </div>

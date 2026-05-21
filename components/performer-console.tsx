@@ -126,19 +126,19 @@ export function PerformerConsole() {
     decoded.current.clear();
   }
 
-  const decodeCue = useCallback(async (cue: PerformerCue) => {
-    if (!cue.signedUrl) return null;
-    const existing = decoded.current.get(cue.id);
+  const decodeAssignment = useCallback(async (cue: PerformerCue, assignmentId: string, signedUrl: string) => {
+    const key = `${cue.id}:${assignmentId}`;
+    const existing = decoded.current.get(key);
     if (existing) return existing;
 
     const audioContext = await ensureAudio();
-    const response = await fetch(cue.signedUrl);
+    const response = await fetch(signedUrl);
     const arrayBuffer = await response.arrayBuffer();
     const buffer = await audioContext.decodeAudioData(arrayBuffer);
     const treated = cue.treatment.reverse
       ? reverseBuffer(audioContext, buffer)
       : buffer;
-    decoded.current.set(cue.id, treated);
+    decoded.current.set(key, treated);
     return treated;
   }, [ensureAudio]);
 
@@ -146,59 +146,69 @@ export function PerformerConsole() {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
     const audioContext = await ensureAudio();
-    const buffer = await decodeCue(cue);
-    if (!buffer) return;
+    const playableAssignments = cue.assignments.filter(
+      (assignment) => assignment.signedUrl,
+    );
+    if (!playableAssignments.length) return;
 
     const treatment: CueTreatment = cue.treatment ?? {};
-    const source = audioContext.createBufferSource();
-    const gain = audioContext.createGain();
-    const filter = audioContext.createBiquadFilter();
-    const shaper = audioContext.createWaveShaper();
-    const delay = audioContext.createDelay(1);
-    const delayGain = audioContext.createGain();
-    const convolver = audioContext.createConvolver();
-    const wetGain = audioContext.createGain();
-    const dryGain = audioContext.createGain();
 
-    source.buffer = buffer;
-    source.loop = true;
-    source.loopStart = Math.min(treatment.loopStart ?? 0, buffer.duration - 0.05);
-    source.loopEnd = Math.min(
-      treatment.loopEnd ?? Math.min(buffer.duration, 3),
-      buffer.duration,
+    await Promise.all(
+      playableAssignments.map(async (assignment) => {
+        const buffer = await decodeAssignment(cue, assignment.id, assignment.signedUrl ?? "");
+        if (!buffer) return;
+
+        const source = audioContext.createBufferSource();
+        const gain = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        const shaper = audioContext.createWaveShaper();
+        const delay = audioContext.createDelay(1);
+        const delayGain = audioContext.createGain();
+        const convolver = audioContext.createConvolver();
+        const wetGain = audioContext.createGain();
+        const dryGain = audioContext.createGain();
+
+        source.buffer = buffer;
+        source.loop = treatment.texture !== "sequence";
+        source.loopStart = Math.min(treatment.loopStart ?? 0, buffer.duration - 0.05);
+        source.loopEnd = Math.min(
+          treatment.loopEnd ?? Math.min(buffer.duration, 3),
+          buffer.duration,
+        );
+        source.playbackRate.value = treatment.playbackRate ?? 1;
+
+        gain.gain.value = (treatment.gain ?? 0.65) * assignment.gain;
+        filter.type = treatment.filterType ?? "lowpass";
+        filter.frequency.value = treatment.filterFrequency ?? 2400;
+        shaper.curve = distortionCurve(treatment.distortion ?? 0.02);
+        shaper.oversample = "2x";
+        delay.delayTime.value = treatment.delay ?? 0;
+        delayGain.gain.value = treatment.delay ? 0.24 : 0;
+        convolver.buffer = impulse(audioContext, 1.8);
+        wetGain.gain.value = treatment.reverb ?? 0;
+        dryGain.gain.value = 1 - Math.min(treatment.reverb ?? 0, 0.72);
+
+        source.connect(shaper);
+        shaper.connect(filter);
+        filter.connect(gain);
+        gain.connect(dryGain);
+        dryGain.connect(audioContext.destination);
+        gain.connect(delay);
+        delay.connect(delayGain);
+        delayGain.connect(delay);
+        delayGain.connect(audioContext.destination);
+        gain.connect(convolver);
+        convolver.connect(wetGain);
+        wetGain.connect(audioContext.destination);
+
+        source.start(audioContext.currentTime + assignment.start_offset_seconds);
+        activeVoices.current.push({
+          source,
+          nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
+        });
+      }),
     );
-    source.playbackRate.value = treatment.playbackRate ?? 1;
-
-    gain.gain.value = treatment.gain ?? 0.65;
-    filter.type = treatment.filterType ?? "lowpass";
-    filter.frequency.value = treatment.filterFrequency ?? 2400;
-    shaper.curve = distortionCurve(treatment.distortion ?? 0.02);
-    shaper.oversample = "2x";
-    delay.delayTime.value = treatment.delay ?? 0;
-    delayGain.gain.value = treatment.delay ? 0.24 : 0;
-    convolver.buffer = impulse(audioContext, 1.8);
-    wetGain.gain.value = treatment.reverb ?? 0;
-    dryGain.gain.value = 1 - Math.min(treatment.reverb ?? 0, 0.72);
-
-    source.connect(shaper);
-    shaper.connect(filter);
-    filter.connect(gain);
-    gain.connect(dryGain);
-    dryGain.connect(audioContext.destination);
-    gain.connect(delay);
-    delay.connect(delayGain);
-    delayGain.connect(delay);
-    delayGain.connect(audioContext.destination);
-    gain.connect(convolver);
-    convolver.connect(wetGain);
-    wetGain.connect(audioContext.destination);
-
-    source.start();
-    activeVoices.current.push({
-      source,
-      nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
-    });
-  }, [data, decodeCue, ensureAudio]);
+  }, [data, decodeAssignment, ensureAudio]);
 
   const advance = useCallback(async () => {
     if (!data?.cues.length) {
@@ -289,7 +299,12 @@ export function PerformerConsole() {
           <span>Current</span>
           <strong>{currentCue?.label ?? "before first cue"}</strong>
           <p>{currentCue?.treatment.name ?? "waiting"}</p>
-          <small>{currentCue?.fragmentText ?? "No whisper assigned yet."}</small>
+          <small>
+            {currentCue?.assignments
+              .map((assignment) => assignment.fragmentText)
+              .filter(Boolean)
+              .join(" / ") || "No voice assigned yet."}
+          </small>
         </div>
         <div className="cue-next">
           <span>Next</span>
@@ -334,7 +349,11 @@ export function PerformerConsole() {
             >
               <span>{cue.label}</span>
               <strong>{cue.treatment.name ?? "treatment"}</strong>
-              <em>{cue.fragmentText ?? "silent fallback"}</em>
+              <em>
+                {cue.assignments.length
+                  ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices`
+                  : "silent fallback"}
+              </em>
               <ArrowRight size={16} />
             </button>
           ))}

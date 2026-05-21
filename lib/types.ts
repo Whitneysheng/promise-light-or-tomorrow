@@ -25,10 +25,18 @@ export type Submission = {
   duration_seconds: number | null;
   created_at: string;
   consent_confirmed: boolean;
+  transcript: string | null;
+  text_match_score: number | null;
+  processing_notes: string | null;
 };
+
+export type CueTexture = "solo" | "sequence" | "cacophony" | "soundtrack";
 
 export type CueTreatment = {
   name?: string;
+  texture?: CueTexture;
+  voiceCount?: number;
+  staggerSeconds?: number;
   gain?: number;
   loopStart?: number;
   loopEnd?: number;
@@ -55,11 +63,16 @@ export type CueAssignment = {
   cue_id: string;
   submission_id: string | null;
   assignment_index: number;
+  start_offset_seconds: number;
+  gain: number;
 };
 
 export type PerformerCue = Cue & {
-  assignment: CueAssignment | null;
-  submission: Submission | null;
-  signedUrl: string | null;
-  fragmentText: string | null;
+  assignments: Array<
+    CueAssignment & {
+      submission: Submission | null;
+      signedUrl: string | null;
+      fragmentText: string | null;
+    }
+  >;
 };
