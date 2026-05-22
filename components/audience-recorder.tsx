@@ -60,127 +60,6 @@ function textMatchScore(expected: string, actual: string) {
   return matches / expectedWords.size;
 }
 
-function encodeWav(buffer: AudioBuffer) {
-  const channels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const samples = buffer.length;
-  const bytesPerSample = 2;
-  const blockAlign = channels * bytesPerSample;
-  const dataSize = samples * blockAlign;
-  const arrayBuffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(arrayBuffer);
-  let offset = 0;
-
-  function writeString(value: string) {
-    for (let i = 0; i < value.length; i += 1) {
-      view.setUint8(offset, value.charCodeAt(i));
-      offset += 1;
-    }
-  }
-
-  writeString("RIFF");
-  view.setUint32(offset, 36 + dataSize, true);
-  offset += 4;
-  writeString("WAVE");
-  writeString("fmt ");
-  view.setUint32(offset, 16, true);
-  offset += 4;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint16(offset, channels, true);
-  offset += 2;
-  view.setUint32(offset, sampleRate, true);
-  offset += 4;
-  view.setUint32(offset, sampleRate * blockAlign, true);
-  offset += 4;
-  view.setUint16(offset, blockAlign, true);
-  offset += 2;
-  view.setUint16(offset, bytesPerSample * 8, true);
-  offset += 2;
-  writeString("data");
-  view.setUint32(offset, dataSize, true);
-  offset += 4;
-
-  for (let i = 0; i < samples; i += 1) {
-    for (let channel = 0; channel < channels; channel += 1) {
-      const sample = Math.max(-1, Math.min(1, buffer.getChannelData(channel)[i]));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
-  }
-
-  return new Blob([arrayBuffer], { type: "audio/wav" });
-}
-
-async function cleanAndNormalizeAudio(blob: Blob) {
-  const audioContext = new AudioContext();
-  const input = await audioContext.decodeAudioData(await blob.arrayBuffer());
-  const offline = new OfflineAudioContext(
-    input.numberOfChannels,
-    input.length,
-    input.sampleRate,
-  );
-  const source = offline.createBufferSource();
-  const highpass = offline.createBiquadFilter();
-  const lowpass = offline.createBiquadFilter();
-  const compressor = offline.createDynamicsCompressor();
-
-  source.buffer = input;
-  highpass.type = "highpass";
-  highpass.frequency.value = 120;
-  lowpass.type = "lowpass";
-  lowpass.frequency.value = 6200;
-  compressor.threshold.value = -38;
-  compressor.knee.value = 18;
-  compressor.ratio.value = 4.5;
-  compressor.attack.value = 0.005;
-  compressor.release.value = 0.16;
-
-  source.connect(highpass);
-  highpass.connect(lowpass);
-  lowpass.connect(compressor);
-  compressor.connect(offline.destination);
-  source.start();
-
-  const rendered = await offline.startRendering();
-  await audioContext.close();
-
-  const floorSamples = Math.min(rendered.length, Math.floor(rendered.sampleRate * 0.35));
-  let noiseTotal = 0;
-  let noiseCount = 0;
-  let peak = 0;
-
-  for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
-    const data = rendered.getChannelData(channel);
-    for (let i = 0; i < floorSamples; i += 1) {
-      noiseTotal += data[i] * data[i];
-      noiseCount += 1;
-    }
-  }
-
-  const noiseFloor = Math.sqrt(noiseTotal / Math.max(1, noiseCount));
-  const gate = Math.max(0.008, noiseFloor * 2.4);
-
-  for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
-    const data = rendered.getChannelData(channel);
-    for (let i = 0; i < data.length; i += 1) {
-      if (Math.abs(data[i]) < gate) data[i] *= 0.06;
-      peak = Math.max(peak, Math.abs(data[i]));
-    }
-  }
-
-  const targetPeak = 0.89;
-  const gain = peak > 0 ? Math.min(8, targetPeak / peak) : 1;
-  for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
-    const data = rendered.getChannelData(channel);
-    for (let i = 0; i < data.length; i += 1) {
-      data[i] = Math.max(-1, Math.min(1, data[i] * gain));
-    }
-  }
-
-  return encodeWav(rendered);
-}
-
 export function AudienceRecorder() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [selectedFragment, setSelectedFragment] = useState<string>("");
@@ -191,9 +70,9 @@ export function AudienceRecorder() {
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
   const [matchScore, setMatchScore] = useState<number | null>(null);
-  const [processing, setProcessing] = useState(false);
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const recognition = useRef<SpeechRecognitionLike | null>(null);
+  const finalTranscript = useRef<string>("");
   const startedAt = useRef<number>(0);
   const stream = useRef<MediaStream | null>(null);
 
@@ -250,6 +129,7 @@ export function AudienceRecorder() {
     setError(null);
     setAudioBlob(null);
     setTranscript("");
+    finalTranscript.current = "";
     setMatchScore(null);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(null);
@@ -289,18 +169,8 @@ export function AudienceRecorder() {
         const blob = new Blob(chunks, {
           type: recorder.mimeType || "audio/webm",
         });
-        setProcessing(true);
-        cleanAndNormalizeAudio(blob)
-          .then((processed) => {
-            setAudioBlob(processed);
-            setAudioUrl(URL.createObjectURL(processed));
-          })
-          .catch(() => {
-            setAudioBlob(blob);
-            setAudioUrl(URL.createObjectURL(blob));
-            setError("Audio cleanup was not available, so the raw recording is ready.");
-          })
-          .finally(() => setProcessing(false));
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
         setDuration((performance.now() - startedAt.current) / 1000);
         setRecorderState("review");
         userStream.getTracks().forEach((track) => track.stop());
@@ -314,11 +184,17 @@ export function AudienceRecorder() {
         speech.interimResults = true;
         speech.lang = "en-US";
         speech.onresult = (event) => {
-          let recognized = "";
+          let interim = "";
           for (let i = event.resultIndex; i < event.results.length; i += 1) {
-            recognized += event.results[i][0].transcript;
+            const phrase = event.results[i][0].transcript.trim();
+            if (!phrase) continue;
+            if (event.results[i].isFinal) {
+              finalTranscript.current = `${finalTranscript.current} ${phrase}`.trim();
+            } else {
+              interim = `${interim} ${phrase}`.trim();
+            }
           }
-          setTranscript((current) => `${current} ${recognized}`.trim());
+          setTranscript(`${finalTranscript.current} ${interim}`.trim());
         };
         speech.onend = () => {
           recognition.current = null;
@@ -359,8 +235,8 @@ export function AudienceRecorder() {
     formData.append("durationSeconds", String(duration));
     formData.append("transcript", transcript);
     formData.append("textMatchScore", score === null ? "" : String(score));
-    formData.append("processingNotes", "browser voice-band filtering, noise gate, compression, peak normalization");
-    formData.append("audio", audioBlob, audioBlob.type.includes("wav") ? "voice.wav" : "voice.webm");
+    formData.append("processingNotes", "raw browser recording");
+    formData.append("audio", audioBlob, audioBlob.type.includes("mp4") ? "voice.mp4" : "voice.webm");
 
     const response = await fetch("/api/submit", {
       method: "POST",
@@ -455,8 +331,6 @@ export function AudienceRecorder() {
           <audio className="review-player" controls src={audioUrl} />
         )}
 
-        {processing && <p className="muted">Cleaning noise and leveling the recording.</p>}
-
         {transcript && recorderState !== "submitted" && (
           <p className="selected-line">
             Detected: <strong>&quot;{transcript}&quot;</strong>
@@ -503,7 +377,7 @@ export function AudienceRecorder() {
                 <RotateCcw size={18} />
                 Record again
               </button>
-              <button onClick={submitRecording} disabled={processing}>
+              <button onClick={submitRecording}>
                 <Send size={18} />
                 Submit
               </button>
