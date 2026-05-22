@@ -395,11 +395,26 @@ export function PerformerConsole() {
 
         source.buffer = buffer;
         source.loop = treatment.texture !== "sequence";
-        source.loopStart = Math.min(treatment.loopStart ?? 0, buffer.duration - 0.05);
-        source.loopEnd = Math.min(
-          treatment.loopEnd ?? Math.min(buffer.duration, 3),
-          buffer.duration,
+        const detectedStart = Math.min(
+          leadingSoundOffset(buffer),
+          Math.max(0, buffer.duration - 0.05),
         );
+        const requestedLoopStart = treatment.loopStart ?? 0;
+        const requestedLoopEnd = treatment.loopEnd ?? Math.min(buffer.duration, 3);
+        const effectiveLoopStart = source.loop
+          ? Math.max(requestedLoopStart, detectedStart)
+          : detectedStart;
+        const effectiveLoopEnd = Math.min(
+          buffer.duration,
+          Math.max(requestedLoopEnd, effectiveLoopStart + 0.05),
+        );
+        const playbackOffset = Math.min(
+          effectiveLoopStart,
+          Math.max(0, effectiveLoopEnd - 0.05),
+        );
+
+        source.loopStart = playbackOffset;
+        source.loopEnd = effectiveLoopEnd;
         source.playbackRate.value = treatment.playbackRate ?? 1;
 
         gain.gain.value =
@@ -427,7 +442,10 @@ export function PerformerConsole() {
         convolver.connect(wetGain);
         wetGain.connect(audioContext.destination);
 
-        source.start(audioContext.currentTime + assignment.start_offset_seconds);
+        source.start(
+          audioContext.currentTime + assignment.start_offset_seconds,
+          playbackOffset,
+        );
         activeVoices.current.push({
           sources: [source],
           nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
