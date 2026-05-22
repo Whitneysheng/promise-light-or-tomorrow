@@ -190,6 +190,25 @@ function leadingSoundOffset(buffer: AudioBuffer) {
   return 0;
 }
 
+function trimLeadingSilence(context: AudioContext, buffer: AudioBuffer) {
+  const offsetFrames = Math.floor(leadingSoundOffset(buffer) * buffer.sampleRate);
+  if (offsetFrames <= 0) return buffer;
+
+  const length = Math.max(1, buffer.length - offsetFrames);
+  const trimmed = context.createBuffer(
+    buffer.numberOfChannels,
+    length,
+    buffer.sampleRate,
+  );
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+    const input = buffer.getChannelData(channel);
+    trimmed.copyToChannel(input.subarray(offsetFrames), channel);
+  }
+
+  return trimmed;
+}
+
 export function PerformerConsole() {
   const [passcode, setPasscode] = useState("");
   const [data, setData] = useState<PerformerData | null>(null);
@@ -297,9 +316,10 @@ export function PerformerConsole() {
     const response = await fetch(signedUrl);
     const arrayBuffer = await response.arrayBuffer();
     const buffer = await audioContext.decodeAudioData(arrayBuffer);
+    const trimmed = trimLeadingSilence(audioContext, buffer);
     const treated = cue.treatment.reverse
-      ? reverseBuffer(audioContext, buffer)
-      : buffer;
+      ? reverseBuffer(audioContext, trimmed)
+      : trimmed;
     decoded.current.set(key, treated);
     return treated;
   }, [ensureAudio]);
@@ -321,8 +341,9 @@ export function PerformerConsole() {
 
     const arrayBuffer = await response.arrayBuffer();
     const buffer = await audioContext.decodeAudioData(arrayBuffer);
-    decoded.current.set(key, buffer);
-    return buffer;
+    const trimmed = trimLeadingSilence(audioContext, buffer);
+    decoded.current.set(key, trimmed);
+    return trimmed;
   }, [ensureAudio]);
 
   const startSoundtrackLayer = useCallback(async (cue: PerformerCue) => {
@@ -340,10 +361,7 @@ export function PerformerConsole() {
     gain.gain.value = soundtrackGains[layer];
     source.connect(gain);
     gain.connect(audioContext.destination);
-    source.start(
-      audioContext.currentTime,
-      Math.min(leadingSoundOffset(buffer), buffer.duration - 0.05),
-    );
+    source.start(audioContext.currentTime);
 
     activeSoundtrackLayers.current.add(layer);
     activeVoices.current.push({ sources: [source], nodes: [gain], gains: [gain] });
@@ -395,15 +413,9 @@ export function PerformerConsole() {
 
         source.buffer = buffer;
         source.loop = treatment.texture !== "sequence";
-        const detectedStart = Math.min(
-          leadingSoundOffset(buffer),
-          Math.max(0, buffer.duration - 0.05),
-        );
         const requestedLoopStart = treatment.loopStart ?? 0;
         const requestedLoopEnd = treatment.loopEnd ?? Math.min(buffer.duration, 3);
-        const effectiveLoopStart = source.loop
-          ? Math.max(requestedLoopStart, detectedStart)
-          : detectedStart;
+        const effectiveLoopStart = source.loop ? requestedLoopStart : 0;
         const effectiveLoopEnd = Math.min(
           buffer.duration,
           Math.max(requestedLoopEnd, effectiveLoopStart + 0.05),
@@ -444,7 +456,7 @@ export function PerformerConsole() {
 
         source.start(
           audioContext.currentTime + assignment.start_offset_seconds,
-          playbackOffset,
+          source.loop ? playbackOffset : 0,
         );
         activeVoices.current.push({
           sources: [source],
