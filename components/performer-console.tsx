@@ -34,6 +34,12 @@ const soundtrackAssets = {
   bflatBnatural: "/soundtrack/03_bflat_bnatural_stem.wav",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
+const soundtrackGains = {
+  windEflat: 0.48,
+  dNatural: 0.72,
+  bflatBnatural: 0.72,
+} satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
+
 function distortionCurve(amount: number) {
   const samples = 44100;
   const curve = new Float32Array(samples);
@@ -183,7 +189,7 @@ export function PerformerConsole() {
 
     source.buffer = buffer;
     source.loop = false;
-    gain.gain.value = 1;
+    gain.gain.value = soundtrackGains[layer];
     source.connect(gain);
     gain.connect(audioContext.destination);
     source.start();
