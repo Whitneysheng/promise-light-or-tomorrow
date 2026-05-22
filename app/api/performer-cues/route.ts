@@ -11,6 +11,7 @@ function soundtrackLayerForCue(cue: Cue) {
   if (cue.order_index === 2) return "dNatural";
   if (cue.order_index === 3) return "bflatBnatural";
   if (cue.order_index === 4) return "windChimes";
+  if (cue.order_index === 5) return "oceanWaves";
   return undefined;
 }
 
