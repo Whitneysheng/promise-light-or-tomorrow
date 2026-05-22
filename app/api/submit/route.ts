@@ -28,6 +28,13 @@ const blockedWords = new Set([
   "whore",
 ]);
 
+const blockedPhrases = [
+  "i hate you",
+  "hate you",
+  "kill yourself",
+  "go die",
+].map(normalizedWords);
+
 function normalizedWords(value: string) {
   return value
     .toLowerCase()
@@ -49,6 +56,13 @@ function containsPhrase(actualWords: string[], expectedWords: string[]) {
   );
 }
 
+function hasBlockedLanguage(actualWords: string[]) {
+  return (
+    actualWords.some((word) => blockedWords.has(word)) ||
+    blockedPhrases.some((phrase) => containsPhrase(actualWords, phrase))
+  );
+}
+
 function transcriptFlags(expected: string, actual: string) {
   const expectedWords = normalizedWords(expected);
   const actualWords = normalizedWords(actual);
@@ -56,7 +70,7 @@ function transcriptFlags(expected: string, actual: string) {
 
   if (!actualWords.length) return flags;
 
-  if (actualWords.some((word) => blockedWords.has(word))) {
+  if (hasBlockedLanguage(actualWords)) {
     flags.push(profanityFlag);
   }
 
@@ -79,7 +93,7 @@ function verifyTranscript(expected: string, actual: string): VerificationResult 
     };
   }
 
-  if (actualWords.some((word) => blockedWords.has(word))) {
+  if (hasBlockedLanguage(actualWords)) {
     return {
       ok: false,
       reason:
