@@ -2,6 +2,72 @@ import { NextRequest, NextResponse } from "next/server";
 import { demoModeEnabled } from "@/lib/demo-data";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
+type VerificationResult = {
+  ok: boolean;
+  reason?: string;
+};
+
+const blockedWords = new Set([
+  "asshole",
+  "bitch",
+  "cunt",
+  "dick",
+  "fuck",
+  "fucked",
+  "fucker",
+  "fucking",
+  "pussy",
+  "shit",
+  "slut",
+  "whore",
+]);
+
+function normalizedWords(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function verifyTranscript(expected: string, actual: string): VerificationResult {
+  const expectedWords = normalizedWords(expected);
+  const actualWords = normalizedWords(actual);
+
+  if (!actualWords.length) {
+    return {
+      ok: false,
+      reason:
+        "No verified speech was detected. Please record the selected line again.",
+    };
+  }
+
+  if (actualWords.some((word) => blockedWords.has(word))) {
+    return {
+      ok: false,
+      reason:
+        "The recording includes words outside the selected text. Please record only the selected line.",
+    };
+  }
+
+  const expectedSet = new Set(expectedWords);
+  const matchingWords = actualWords.filter((word) => expectedSet.has(word));
+  const extraWords = actualWords.filter((word) => !expectedSet.has(word));
+  const coverage = matchingWords.length / Math.max(1, expectedWords.length);
+  const lengthDelta = Math.abs(actualWords.length - expectedWords.length);
+
+  if (coverage < 0.8 || lengthDelta > 2 || extraWords.length > 2) {
+    return {
+      ok: false,
+      reason:
+        "The detected words do not match the selected line. Please record only the selected line.",
+    };
+  }
+
+  return { ok: true };
+}
+
 export async function POST(request: NextRequest) {
   if (demoModeEnabled()) {
     return NextResponse.json({
@@ -18,6 +84,7 @@ export async function POST(request: NextRequest) {
   const performanceId = String(formData.get("performanceId") ?? "");
   const fragmentId = String(formData.get("fragmentId") ?? "");
   const durationSeconds = Number(formData.get("durationSeconds") ?? 0);
+  const transcript = String(formData.get("transcript") ?? "").trim();
   const audio = formData.get("audio");
 
   if (!performanceId || !fragmentId || !(audio instanceof File)) {
@@ -42,13 +109,21 @@ export async function POST(request: NextRequest) {
 
   const { data: fragment, error: fragmentError } = await supabase
     .from("fragments")
-    .select("id")
+    .select("id,text")
     .eq("id", fragmentId)
     .eq("performance_id", performanceId)
     .single();
 
   if (fragmentError || !fragment) {
     return NextResponse.json({ error: "Invalid fragment." }, { status: 400 });
+  }
+
+  const verification = verifyTranscript(fragment.text, transcript);
+  if (!verification.ok) {
+    return NextResponse.json(
+      { error: verification.reason ?? "Please record the selected line again." },
+      { status: 400 },
+    );
   }
 
   const submissionId = crypto.randomUUID();

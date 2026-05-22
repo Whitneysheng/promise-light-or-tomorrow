@@ -11,6 +11,11 @@ type Bootstrap = {
 };
 
 type RecorderState = "idle" | "recording" | "review" | "submitting" | "submitted";
+type MicPermissionState = "unknown" | "ready" | "blocked";
+type VerificationResult = {
+  ok: boolean;
+  reason?: string;
+};
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -39,25 +44,82 @@ function getSpeechRecognition() {
   return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
 }
 
-function words(value: string) {
+const audioConstraints: MediaStreamConstraints = {
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    channelCount: 1,
+  },
+};
+
+async function getVoiceStream() {
+  return navigator.mediaDevices.getUserMedia(audioConstraints);
+}
+
+function stopStream(input: MediaStream) {
+  input.getTracks().forEach((track) => track.stop());
+}
+
+const blockedWords = new Set([
+  "asshole",
+  "bitch",
+  "cunt",
+  "dick",
+  "fuck",
+  "fucked",
+  "fucker",
+  "fucking",
+  "pussy",
+  "shit",
+  "slut",
+  "whore",
+]);
+
+function normalizedWords(value: string) {
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9'\s]/g, " ")
+    .replace(/['']/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
 }
 
-function textMatchScore(expected: string, actual: string) {
-  const expectedWords = new Set(words(expected));
-  const actualWords = new Set(words(actual));
-  if (!expectedWords.size || !actualWords.size) return 0;
+function verifyTranscript(expected: string, actual: string): VerificationResult {
+  const expectedWords = normalizedWords(expected);
+  const actualWords = normalizedWords(actual);
 
-  let matches = 0;
-  expectedWords.forEach((word) => {
-    if (actualWords.has(word)) matches += 1;
-  });
+  if (!actualWords.length) {
+    return {
+      ok: false,
+      reason:
+        "No verified speech was detected. Please record the selected line again.",
+    };
+  }
 
-  return matches / expectedWords.size;
+  if (actualWords.some((word) => blockedWords.has(word))) {
+    return {
+      ok: false,
+      reason:
+        "The recording includes words outside the selected text. Please record only the selected line.",
+    };
+  }
+
+  const expectedSet = new Set(expectedWords);
+  const matchingWords = actualWords.filter((word) => expectedSet.has(word));
+  const extraWords = actualWords.filter((word) => !expectedSet.has(word));
+  const coverage = matchingWords.length / Math.max(1, expectedWords.length);
+  const lengthDelta = Math.abs(actualWords.length - expectedWords.length);
+
+  if (coverage < 0.8 || lengthDelta > 2 || extraWords.length > 2) {
+    return {
+      ok: false,
+      reason:
+        "The detected words do not match the selected line. Please record only the selected line.",
+    };
+  }
+
+  return { ok: true };
 }
 
 export function AudienceRecorder() {
@@ -69,7 +131,8 @@ export function AudienceRecorder() {
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [transcript, setTranscript] = useState("");
-  const [matchScore, setMatchScore] = useState<number | null>(null);
+  const [micPermission, setMicPermission] =
+    useState<MicPermissionState>("unknown");
   const mediaRecorder = useRef<MediaRecorder | null>(null);
   const recognition = useRef<SpeechRecognitionLike | null>(null);
   const finalTranscript = useRef<string>("");
@@ -118,6 +181,25 @@ export function AudienceRecorder() {
     };
   }, [audioUrl]);
 
+  useEffect(() => {
+    if (!bootstrap || micPermission !== "unknown") return;
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return;
+
+    let cancelled = false;
+    getVoiceStream()
+      .then((permissionStream) => {
+        stopStream(permissionStream);
+        if (!cancelled) setMicPermission("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setMicPermission("blocked");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrap, micPermission]);
+
   const selectedText = useMemo(
     () =>
       bootstrap?.fragments.find((fragment) => fragment.id === selectedFragment)
@@ -130,7 +212,6 @@ export function AudienceRecorder() {
     setAudioBlob(null);
     setTranscript("");
     finalTranscript.current = "";
-    setMatchScore(null);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl(null);
 
@@ -142,14 +223,8 @@ export function AudienceRecorder() {
         return;
       }
 
-      const userStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
-      });
+      const userStream = await getVoiceStream();
+      setMicPermission("ready");
       stream.current = userStream;
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
@@ -223,8 +298,11 @@ export function AudienceRecorder() {
 
   async function submitRecording() {
     if (!bootstrap || !audioBlob || !selectedFragment) return;
-    const score = transcript ? textMatchScore(selectedText, transcript) : null;
-    setMatchScore(score);
+    const verification = verifyTranscript(selectedText, transcript);
+    if (!verification.ok) {
+      setError(verification.reason ?? "Please record the selected line again.");
+      return;
+    }
 
     setRecorderState("submitting");
     setError(null);
@@ -234,7 +312,6 @@ export function AudienceRecorder() {
     formData.append("fragmentId", selectedFragment);
     formData.append("durationSeconds", String(duration));
     formData.append("transcript", transcript);
-    formData.append("textMatchScore", score === null ? "" : String(score));
     formData.append("processingNotes", "raw browser recording");
     formData.append("audio", audioBlob, audioBlob.type.includes("mp4") ? "voice.mp4" : "voice.webm");
 
@@ -337,12 +414,6 @@ export function AudienceRecorder() {
           </p>
         )}
 
-        {matchScore !== null && (
-          <p className="selected-line">
-            Text match: <strong>{Math.round(matchScore * 100)}%</strong>
-          </p>
-        )}
-
         {!transcript && audioUrl && recorderState === "review" && (
           <p className="selected-line">
             Speech check unavailable on this device. Listen back before submitting.
@@ -350,6 +421,12 @@ export function AudienceRecorder() {
         )}
 
         {error && <p className="error-text">{error}</p>}
+
+        {micPermission === "blocked" && (
+          <p className="selected-line">
+            Microphone permission is not active yet. Tap Record and allow access.
+          </p>
+        )}
 
         {recorderState !== "submitted" && (
           <p className="recording-tip">
