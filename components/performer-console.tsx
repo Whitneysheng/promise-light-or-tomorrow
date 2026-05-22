@@ -32,6 +32,7 @@ type ActiveVoice = {
 const TARGET_VOICE_RMS = 0.105;
 const MIN_VOICE_GAIN = 0.35;
 const MAX_VOICE_GAIN = 2.8;
+const CUE_FIVE_FADE_WAIT_SECONDS = 5.5;
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -376,7 +377,7 @@ export function PerformerConsole() {
     const cue = data.cues[index];
     if (cue.treatment.soundtrackLayer === "oceanWaves" && activeVoices.current.length) {
       void fadeAndStopActiveVoices(9);
-      await wait(7.5);
+      await wait(CUE_FIVE_FADE_WAIT_SECONDS);
     }
 
     if (cue.treatment.soundtrackLayer) {
