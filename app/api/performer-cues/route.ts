@@ -14,6 +14,7 @@ const availableSoundtrackLayers = new Set([
   "windChimes",
   "oceanWaves",
   "lowDoubleBass",
+  "oceanWavesCDbEbG",
 ]);
 
 function soundtrackLayerForCue(cue: Cue) {
@@ -23,6 +24,7 @@ function soundtrackLayerForCue(cue: Cue) {
   if (cue.order_index === 4) return "windChimes";
   if (cue.order_index === 5) return "oceanWaves";
   if (cue.order_index === 6) return "lowDoubleBass";
+  if (cue.order_index === 7) return "oceanWavesCDbEbG";
   return undefined;
 }
 
