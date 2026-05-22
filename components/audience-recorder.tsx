@@ -12,8 +12,6 @@ type Bootstrap = {
 
 type RecorderState = "idle" | "recording" | "review" | "submitting" | "submitted";
 
-const MIN_TEXT_MATCH_SCORE = 0.55;
-
 type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
@@ -264,14 +262,6 @@ export function AudienceRecorder() {
         return;
       }
 
-      const Recognition = getSpeechRecognition();
-      if (!Recognition) {
-        setError(
-          "This browser cannot verify spoken text. Please use Chrome, Edge, or Safari with speech recognition enabled.",
-        );
-        return;
-      }
-
       const userStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -317,29 +307,28 @@ export function AudienceRecorder() {
       };
 
       mediaRecorder.current = recorder;
-      const speech = new Recognition();
-      speech.continuous = true;
-      speech.interimResults = true;
-      speech.lang = "en-US";
-      speech.onresult = (event) => {
-        let recognized = "";
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          recognized += event.results[i][0].transcript;
+      const Recognition = getSpeechRecognition();
+      if (Recognition) {
+        const speech = new Recognition();
+        speech.continuous = true;
+        speech.interimResults = true;
+        speech.lang = "en-US";
+        speech.onresult = (event) => {
+          let recognized = "";
+          for (let i = event.resultIndex; i < event.results.length; i += 1) {
+            recognized += event.results[i][0].transcript;
+          }
+          setTranscript((current) => `${current} ${recognized}`.trim());
+        };
+        speech.onend = () => {
+          recognition.current = null;
+        };
+        try {
+          speech.start();
+          recognition.current = speech;
+        } catch {
+          recognition.current = null;
         }
-        setTranscript((current) => `${current} ${recognized}`.trim());
-      };
-      speech.onend = () => {
-        recognition.current = null;
-      };
-      try {
-        speech.start();
-        recognition.current = speech;
-      } catch {
-        userStream.getTracks().forEach((track) => track.stop());
-        setError(
-          "Speech verification could not start. Please refresh and record again.",
-        );
-        return;
       }
       startedAt.current = performance.now();
       recorder.start();
@@ -360,14 +349,6 @@ export function AudienceRecorder() {
     if (!bootstrap || !audioBlob || !selectedFragment) return;
     const score = transcript ? textMatchScore(selectedText, transcript) : null;
     setMatchScore(score);
-    if (score === null) {
-      setError("No verified speech was detected. Please record the selected line again.");
-      return;
-    }
-    if (score < MIN_TEXT_MATCH_SCORE) {
-      setError("The detected words do not seem close enough to the selected line. Please record it again.");
-      return;
-    }
 
     setRecorderState("submitting");
     setError(null);
@@ -485,6 +466,12 @@ export function AudienceRecorder() {
         {matchScore !== null && (
           <p className="selected-line">
             Text match: <strong>{Math.round(matchScore * 100)}%</strong>
+          </p>
+        )}
+
+        {!transcript && audioUrl && recorderState === "review" && (
+          <p className="selected-line">
+            Speech check unavailable on this device. Listen back before submitting.
           </p>
         )}
 

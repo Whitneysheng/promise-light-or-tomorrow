@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { demoModeEnabled } from "@/lib/demo-data";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
-const MIN_TEXT_MATCH_SCORE = 0.55;
-
 function words(value: string) {
   return value
     .toLowerCase()
@@ -53,16 +51,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!transcript) {
-    return NextResponse.json(
-      {
-        error:
-          "Speech verification did not produce text. Please rerecord in a quieter spot or use a browser with speech recognition.",
-      },
-      { status: 400 },
-    );
-  }
-
   const { data: performance, error: performanceError } = await supabase
     .from("performances")
     .select("id,status")
@@ -87,17 +75,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid fragment." }, { status: 400 });
   }
 
-  const serverTextMatchScore = textMatchScore(fragment.text, transcript);
-  if (serverTextMatchScore < MIN_TEXT_MATCH_SCORE) {
-    return NextResponse.json(
-      {
-        error:
-          "The detected words do not match the selected line closely enough. Please record the selected text again.",
-        textMatchScore: serverTextMatchScore,
-      },
-      { status: 400 },
-    );
-  }
+  const serverTextMatchScore = transcript
+    ? textMatchScore(fragment.text, transcript)
+    : null;
 
   const submissionId = crypto.randomUUID();
   const extension = audio.type.includes("wav")
