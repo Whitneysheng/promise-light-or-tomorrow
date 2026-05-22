@@ -26,6 +26,7 @@ type PerformerData = {
 type ActiveVoice = {
   sources: AudioScheduledSourceNode[];
   nodes: AudioNode[];
+  gains: GainNode[];
 };
 
 const TARGET_VOICE_RMS = 0.105;
@@ -56,14 +57,20 @@ const soundtrackNames = {
   oceanWaves: "Ocean waves + bowed vibraphone",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
+function cueNumberLabel(index: number | null | undefined) {
+  return index == null || index < 0 ? "before first cue" : `Cue ${index + 1}`;
+}
+
 function cueDisplayName(cue: PerformerCue | null | undefined) {
   if (!cue) return "";
   const soundtrackName = cue.treatment.soundtrackLayer
     ? soundtrackNames[cue.treatment.soundtrackLayer]
     : null;
-  return soundtrackName
-    ? `${cue.label}: ${soundtrackName}`
-    : cue.treatment.name ?? "treatment";
+  return soundtrackName ?? cue.treatment.name ?? "treatment";
+}
+
+function wait(seconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, seconds * 1000));
 }
 
 function distortionCurve(amount: number) {
@@ -180,6 +187,37 @@ export function PerformerConsole() {
     activeSoundtrackLayers.current.clear();
   }, []);
 
+  const fadeAndStopAll = useCallback(async (seconds = 1.5) => {
+    const audioContext = context.current;
+    if (!audioContext) {
+      stopAll();
+      return;
+    }
+
+    const stopAt = audioContext.currentTime + seconds;
+    activeVoices.current.forEach((voice) => {
+      voice.gains.forEach((gain) => {
+        gain.gain.cancelScheduledValues(audioContext.currentTime);
+        gain.gain.setValueAtTime(gain.gain.value, audioContext.currentTime);
+        gain.gain.linearRampToValueAtTime(0.0001, stopAt);
+      });
+      voice.sources.forEach((source) => {
+        try {
+          source.stop(stopAt);
+        } catch {
+          // Sources may already be stopped.
+        }
+      });
+    });
+
+    await wait(seconds);
+    activeVoices.current.forEach((voice) => {
+      voice.nodes.forEach((node) => node.disconnect());
+    });
+    activeVoices.current = [];
+    activeSoundtrackLayers.current.clear();
+  }, [stopAll]);
+
   const ensureAudio = useCallback(async () => {
     if (!context.current) {
       context.current = new AudioContext();
@@ -267,13 +305,17 @@ export function PerformerConsole() {
     source.start();
 
     activeSoundtrackLayers.current.add(layer);
-    activeVoices.current.push({ sources: [source], nodes: [gain] });
+    activeVoices.current.push({ sources: [source], nodes: [gain], gains: [gain] });
     return true;
   }, [decodeSoundtrackLayer, ensureAudio]);
 
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
+    if (cue.treatment.soundtrackLayer === "oceanWaves" && activeVoices.current.length) {
+      await fadeAndStopAll(1.5);
+    }
+
     if (cue.treatment.soundtrackLayer) {
       try {
         await startSoundtrackLayer(cue);
@@ -347,10 +389,11 @@ export function PerformerConsole() {
         activeVoices.current.push({
           sources: [source],
           nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
+          gains: [gain, delayGain, wetGain, dryGain],
         });
       }),
     );
-  }, [data, decodeAssignment, ensureAudio, startSoundtrackLayer]);
+  }, [data, decodeAssignment, ensureAudio, fadeAndStopAll, startSoundtrackLayer]);
 
   const advance = useCallback(async () => {
     if (!data?.cues.length) {
@@ -439,7 +482,7 @@ export function PerformerConsole() {
       <section className="cue-display">
         <div className="cue-now">
           <span>Current</span>
-          <strong>{currentCue?.label ?? "before first cue"}</strong>
+          <strong>{cueNumberLabel(currentIndex)}</strong>
           <p>{currentCue ? cueDisplayName(currentCue) : "waiting"}</p>
           <small>
             {currentCue?.assignments
@@ -453,7 +496,7 @@ export function PerformerConsole() {
         </div>
         <div className="cue-next">
           <span>Next</span>
-          <strong>{nextCue?.label ?? "end"}</strong>
+          <strong>{nextCue ? cueNumberLabel(currentIndex + 1) : "end"}</strong>
           <p>{nextCue ? cueDisplayName(nextCue) : "no next cue"}</p>
         </div>
       </section>
@@ -492,7 +535,7 @@ export function PerformerConsole() {
                 void playCue(index);
               }}
             >
-              <span>{cue.label}</span>
+              <span>{cueNumberLabel(index)}</span>
               <strong>{cueDisplayName(cue)}</strong>
               <em>
                 {cue.assignments.length
