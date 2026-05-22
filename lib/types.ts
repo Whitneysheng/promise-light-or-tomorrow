@@ -38,7 +38,7 @@ export type CueTexture = "solo" | "sequence" | "cacophony" | "soundtrack";
 export type CueTreatment = {
   name?: string;
   texture?: CueTexture;
-  soundtrackLayer?: "windEflat" | "dNatural" | "bflatBnatural" | "windChimes" | "oceanWaves";
+  soundtrackLayer?: "windEflat" | "dNatural" | "bflatBnatural" | "windChimes" | "oceanWaves" | "lowDoubleBass";
   voiceCount?: number;
   staggerSeconds?: number;
   gain?: number;

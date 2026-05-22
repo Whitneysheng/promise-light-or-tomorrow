@@ -39,6 +39,7 @@ const soundtrackAssets = {
   bflatBnatural: "/soundtrack/03_bflat_bnatural_stem.wav",
   windChimes: "/soundtrack/04_wind_chimes_stem.wav",
   oceanWaves: "/soundtrack/05_gentle_ocean_waves_stem.wav",
+  lowDoubleBass: "/soundtrack/06_low_double_bass_vibration_stem.wav",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 const soundtrackGains = {
@@ -47,6 +48,7 @@ const soundtrackGains = {
   bflatBnatural: 0.72,
   windChimes: 0.78,
   oceanWaves: 0.7,
+  lowDoubleBass: 0.72,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
 const soundtrackNames = {
@@ -55,6 +57,7 @@ const soundtrackNames = {
   bflatBnatural: "B-flat + B natural",
   windChimes: "Small wind chimes",
   oceanWaves: "Ocean waves + bowed vibraphone",
+  lowDoubleBass: "Low double bass sul ponticello",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 function cueNumberLabel(index: number | null | undefined) {
