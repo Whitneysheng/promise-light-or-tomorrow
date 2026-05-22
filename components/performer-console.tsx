@@ -24,8 +24,9 @@ type PerformerData = {
 };
 
 type ActiveVoice = {
-  source: AudioBufferSourceNode;
+  sources: AudioScheduledSourceNode[];
   nodes: AudioNode[];
+  timers?: number[];
 };
 
 function distortionCurve(amount: number) {
@@ -71,6 +72,35 @@ function impulse(context: AudioContext, seconds: number) {
   return buffer;
 }
 
+function noiseBuffer(context: AudioContext, seconds: number) {
+  const length = Math.max(1, Math.floor(context.sampleRate * seconds));
+  const buffer = context.createBuffer(2, length, context.sampleRate);
+
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = buffer.getChannelData(channel);
+    let brown = 0;
+    for (let i = 0; i < length; i += 1) {
+      brown = brown * 0.985 + (Math.random() * 2 - 1) * 0.08;
+      data[i] = Math.max(-1, Math.min(1, brown + (Math.random() * 2 - 1) * 0.28));
+    }
+  }
+
+  return buffer;
+}
+
+function fadeTo(
+  context: AudioContext,
+  gain: AudioParam,
+  value: number,
+  seconds: number,
+  delay = 0,
+) {
+  const start = context.currentTime + delay;
+  gain.cancelScheduledValues(start);
+  gain.setValueAtTime(gain.value, start);
+  gain.linearRampToValueAtTime(value, start + seconds);
+}
+
 export function PerformerConsole() {
   const [passcode, setPasscode] = useState("");
   const [data, setData] = useState<PerformerData | null>(null);
@@ -81,17 +111,22 @@ export function PerformerConsole() {
   const context = useRef<AudioContext | null>(null);
   const decoded = useRef<Map<string, AudioBuffer>>(new Map());
   const activeVoices = useRef<ActiveVoice[]>([]);
+  const activeSoundtrackLayers = useRef<Set<string>>(new Set());
 
   const stopAll = useCallback(() => {
     activeVoices.current.forEach((voice) => {
-      try {
-        voice.source.stop();
-      } catch {
-        // Sources may already be stopped.
-      }
+      voice.sources.forEach((source) => {
+        try {
+          source.stop();
+        } catch {
+          // Sources may already be stopped.
+        }
+      });
+      voice.timers?.forEach((timer) => window.clearTimeout(timer));
       voice.nodes.forEach((node) => node.disconnect());
     });
     activeVoices.current = [];
+    activeSoundtrackLayers.current.clear();
   }, []);
 
   const ensureAudio = useCallback(async () => {
@@ -142,10 +177,195 @@ export function PerformerConsole() {
     return treated;
   }, [ensureAudio]);
 
+  const startSoundtrackLayer = useCallback(async (cue: PerformerCue) => {
+    const layer = cue.treatment.soundtrackLayer;
+    if (!layer) return false;
+    if (activeSoundtrackLayers.current.has(layer)) return true;
+
+    const audioContext = await ensureAudio();
+    const master = audioContext.createGain();
+    const convolver = audioContext.createConvolver();
+    const wetGain = audioContext.createGain();
+    const dryGain = audioContext.createGain();
+    const sources: AudioScheduledSourceNode[] = [];
+    const nodes: AudioNode[] = [master, convolver, wetGain, dryGain];
+    const timers: number[] = [];
+
+    master.gain.value = 0;
+    convolver.buffer = impulse(audioContext, 2.6);
+    wetGain.gain.value = 0.34;
+    dryGain.gain.value = 0.82;
+    master.connect(dryGain);
+    dryGain.connect(audioContext.destination);
+    master.connect(convolver);
+    convolver.connect(wetGain);
+    wetGain.connect(audioContext.destination);
+
+    function addNoiseWind() {
+      const source = audioContext.createBufferSource();
+      const highpass = audioContext.createBiquadFilter();
+      const lowpass = audioContext.createBiquadFilter();
+      const whoosh = audioContext.createBiquadFilter();
+      const windGain = audioContext.createGain();
+      const lfo = audioContext.createOscillator();
+      const lfoDepth = audioContext.createGain();
+
+      source.buffer = noiseBuffer(audioContext, 5);
+      source.loop = true;
+      highpass.type = "highpass";
+      highpass.frequency.value = 90;
+      lowpass.type = "lowpass";
+      lowpass.frequency.value = 3200;
+      whoosh.type = "bandpass";
+      whoosh.frequency.value = 1450;
+      whoosh.Q.value = 0.55;
+      windGain.gain.value = 0.34;
+      lfo.frequency.value = 0.08;
+      lfoDepth.gain.value = 980;
+
+      source.connect(highpass);
+      highpass.connect(lowpass);
+      lowpass.connect(whoosh);
+      whoosh.connect(windGain);
+      windGain.connect(master);
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(whoosh.frequency);
+      source.start();
+      lfo.start();
+
+      sources.push(source, lfo);
+      nodes.push(highpass, lowpass, whoosh, windGain, lfoDepth);
+    }
+
+    function addTone(
+      frequencies: number[],
+      gains: number[],
+      delay: number,
+      fadeSeconds: number,
+      filterFrequency = 1800,
+    ) {
+      const toneGain = audioContext.createGain();
+      const filter = audioContext.createBiquadFilter();
+      const pan = audioContext.createStereoPanner();
+      toneGain.gain.value = 0;
+      filter.type = "lowpass";
+      filter.frequency.value = filterFrequency;
+      pan.pan.value = Math.random() * 0.8 - 0.4;
+      toneGain.connect(filter);
+      filter.connect(pan);
+      pan.connect(master);
+      nodes.push(toneGain, filter, pan);
+
+      frequencies.forEach((frequency, index) => {
+        const oscillator = audioContext.createOscillator();
+        const partialGain = audioContext.createGain();
+        oscillator.type = index < 2 ? "triangle" : "sine";
+        oscillator.frequency.value = frequency * (0.998 + Math.random() * 0.004);
+        partialGain.gain.value = gains[index] ?? gains[gains.length - 1] ?? 0.01;
+        oscillator.connect(partialGain);
+        partialGain.connect(toneGain);
+        oscillator.start(audioContext.currentTime + delay);
+        sources.push(oscillator);
+        nodes.push(partialGain);
+      });
+
+      fadeTo(audioContext, toneGain.gain, 1, fadeSeconds, delay);
+    }
+
+    function addSoftBell(frequencies: number[], delay: number) {
+      const scheduleBell = () => {
+        const bellGain = audioContext.createGain();
+        const filter = audioContext.createBiquadFilter();
+        const pan = audioContext.createStereoPanner();
+        bellGain.gain.value = 0.16;
+        filter.type = "highpass";
+        filter.frequency.value = 430;
+        pan.pan.value = Math.random() * 1.4 - 0.7;
+        bellGain.connect(filter);
+        filter.connect(pan);
+        pan.connect(master);
+        nodes.push(bellGain, filter, pan);
+
+        frequencies.forEach((frequency, index) => {
+          const oscillator = audioContext.createOscillator();
+          const partialGain = audioContext.createGain();
+          oscillator.type = "sine";
+          oscillator.frequency.value = frequency;
+          partialGain.gain.value = 0.045 / (index + 1);
+          oscillator.connect(partialGain);
+          partialGain.connect(bellGain);
+          oscillator.start();
+          oscillator.stop(audioContext.currentTime + 4.8);
+          sources.push(oscillator);
+          nodes.push(partialGain);
+        });
+
+        bellGain.gain.setValueAtTime(0, audioContext.currentTime);
+        bellGain.gain.linearRampToValueAtTime(0.16, audioContext.currentTime + 0.18);
+        bellGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 4.8);
+      };
+
+      const firstTimer = window.setTimeout(scheduleBell, delay * 1000 + Math.random() * 2200);
+      const intervalTimer = window.setInterval(scheduleBell, 28000 + Math.random() * 12000);
+      timers.push(firstTimer, intervalTimer);
+    }
+
+    if (layer === "windEflat") {
+      addNoiseWind();
+      addTone(
+        [77.782, 155.563, 311.127, 622.254, 1244.508, 1866.762, 2489.016],
+        [0.032, 0.035, 0.026, 0.014, 0.018, 0.014, 0.01],
+        0,
+        8,
+        2200,
+      );
+      addSoftBell([622.254, 1244.508, 2489.016, 3733.524], 5);
+      fadeTo(audioContext, master.gain, 0.82, 6);
+    }
+
+    if (layer === "dNatural") {
+      addTone(
+        [73.416, 146.832, 293.665, 587.33, 1174.66, 1761.99, 2349.32],
+        [0.022, 0.025, 0.02, 0.011, 0.012, 0.009, 0.006],
+        0,
+        5,
+        1900,
+      );
+      addSoftBell([587.33, 1174.66, 2349.32, 3523.98], 3);
+      fadeTo(audioContext, master.gain, 0.72, 5);
+    }
+
+    if (layer === "bflatBnatural") {
+      addTone(
+        [58.27, 116.541, 233.082, 466.164, 932.328, 1398.492, 2796.984],
+        [0.016, 0.018, 0.014, 0.008, 0.008, 0.006, 0.004],
+        0,
+        5,
+        1650,
+      );
+      addTone(
+        [61.735, 123.471, 246.942, 493.883, 987.767, 1481.65, 2963.3],
+        [0.012, 0.014, 0.011, 0.006, 0.006, 0.0045, 0.003],
+        3,
+        5,
+        1700,
+      );
+      addSoftBell([466.164, 932.328, 1864.656, 2796.984], 4);
+      addSoftBell([493.883, 987.767, 1975.533, 2963.3], 7);
+      fadeTo(audioContext, master.gain, 0.68, 5);
+    }
+
+    activeSoundtrackLayers.current.add(layer);
+    activeVoices.current.push({ sources, nodes, timers });
+    return true;
+  }, [ensureAudio]);
+
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
     const audioContext = await ensureAudio();
+    const startedSoundtrack = await startSoundtrackLayer(cue);
+    if (startedSoundtrack) return;
     const playableAssignments = cue.assignments.filter(
       (assignment) => assignment.signedUrl,
     );
@@ -203,12 +423,12 @@ export function PerformerConsole() {
 
         source.start(audioContext.currentTime + assignment.start_offset_seconds);
         activeVoices.current.push({
-          source,
+          sources: [source],
           nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
         });
       }),
     );
-  }, [data, decodeAssignment, ensureAudio]);
+  }, [data, decodeAssignment, ensureAudio, startSoundtrackLayer]);
 
   const advance = useCallback(async () => {
     if (!data?.cues.length) {
@@ -300,7 +520,9 @@ export function PerformerConsole() {
           <strong>{currentCue?.label ?? "before first cue"}</strong>
           <p>{currentCue?.treatment.name ?? "waiting"}</p>
           <small>
-            {currentCue?.assignments
+            {currentCue?.treatment.texture === "soundtrack"
+              ? "Built-in additive soundtrack layer."
+              : currentCue?.assignments
               .map((assignment) => assignment.fragmentText)
               .filter(Boolean)
               .join(" / ") || "No voice assigned yet."}
@@ -350,7 +572,9 @@ export function PerformerConsole() {
               <span>{cue.label}</span>
               <strong>{cue.treatment.name ?? "treatment"}</strong>
               <em>
-                {cue.assignments.length
+                {cue.treatment.texture === "soundtrack"
+                  ? "additive soundtrack layer"
+                  : cue.assignments.length
                   ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices`
                   : "silent fallback"}
               </em>

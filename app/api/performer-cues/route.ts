@@ -6,6 +6,47 @@ type JoinedSubmission = Submission & {
   fragments?: { text: string } | null;
 };
 
+function soundtrackCues(performanceId: string): PerformerCue[] {
+  return [
+    {
+      id: "soundtrack-wind-eflat",
+      performance_id: performanceId,
+      label: "Soundtrack 1",
+      order_index: -30,
+      treatment: {
+        name: "wind + E-flat",
+        texture: "soundtrack",
+        soundtrackLayer: "windEflat",
+      },
+      assignments: [],
+    },
+    {
+      id: "soundtrack-d-natural",
+      performance_id: performanceId,
+      label: "Soundtrack 2",
+      order_index: -20,
+      treatment: {
+        name: "add D natural",
+        texture: "soundtrack",
+        soundtrackLayer: "dNatural",
+      },
+      assignments: [],
+    },
+    {
+      id: "soundtrack-bflat-bnatural",
+      performance_id: performanceId,
+      label: "Soundtrack 3",
+      order_index: -10,
+      treatment: {
+        name: "add B-flat, then B natural",
+        texture: "soundtrack",
+        soundtrackLayer: "bflatBnatural",
+      },
+      assignments: [],
+    },
+  ];
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { passcode } = await request.json();
@@ -97,7 +138,10 @@ export async function POST(request: NextRequest) {
       }),
     );
 
-    return NextResponse.json({ performance, cues: performerCues });
+    return NextResponse.json({
+      performance,
+      cues: [...soundtrackCues(performance.id), ...performerCues],
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unauthorized." },
