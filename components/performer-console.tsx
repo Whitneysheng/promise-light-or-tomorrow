@@ -48,6 +48,24 @@ const soundtrackGains = {
   oceanWaves: 0.7,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
+const soundtrackNames = {
+  windEflat: "Wind + E-flat",
+  dNatural: "D natural layer",
+  bflatBnatural: "B-flat + B natural",
+  windChimes: "Small wind chimes",
+  oceanWaves: "Ocean waves + bowed vibraphone",
+} satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
+
+function cueDisplayName(cue: PerformerCue | null | undefined) {
+  if (!cue) return "";
+  const soundtrackName = cue.treatment.soundtrackLayer
+    ? soundtrackNames[cue.treatment.soundtrackLayer]
+    : null;
+  return soundtrackName
+    ? `${cue.label}: ${soundtrackName}`
+    : cue.treatment.name ?? "treatment";
+}
+
 function distortionCurve(amount: number) {
   const samples = 44100;
   const curve = new Float32Array(samples);
@@ -422,7 +440,7 @@ export function PerformerConsole() {
         <div className="cue-now">
           <span>Current</span>
           <strong>{currentCue?.label ?? "before first cue"}</strong>
-          <p>{currentCue?.treatment.name ?? "waiting"}</p>
+          <p>{currentCue ? cueDisplayName(currentCue) : "waiting"}</p>
           <small>
             {currentCue?.assignments
               .map((assignment) => assignment.fragmentText)
@@ -436,7 +454,7 @@ export function PerformerConsole() {
         <div className="cue-next">
           <span>Next</span>
           <strong>{nextCue?.label ?? "end"}</strong>
-          <p>{nextCue?.treatment.name ?? "no next cue"}</p>
+          <p>{nextCue ? cueDisplayName(nextCue) : "no next cue"}</p>
         </div>
       </section>
 
@@ -475,12 +493,12 @@ export function PerformerConsole() {
               }}
             >
               <span>{cue.label}</span>
-              <strong>{cue.treatment.name ?? "treatment"}</strong>
+              <strong>{cueDisplayName(cue)}</strong>
               <em>
                 {cue.assignments.length
-                  ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices`
+                  ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices${cue.treatment.soundtrackLayer ? " + soundtrack" : ""}`
                   : cue.treatment.soundtrackLayer
-                    ? "soundtrack only until voice is loaded"
+                    ? "soundtrack cue"
                     : "silent fallback"}
               </em>
               <ArrowRight size={16} />
