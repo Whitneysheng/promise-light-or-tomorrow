@@ -7,6 +7,15 @@ type JoinedSubmission = Submission & {
   fragments?: { text: string } | null;
 };
 
+const availableSoundtrackLayers = new Set([
+  "windEflat",
+  "dNatural",
+  "bflatBnatural",
+  "windChimes",
+  "oceanWaves",
+  "lowDoubleBass",
+]);
+
 function soundtrackLayerForCue(cue: Cue) {
   if (cue.order_index === 1) return "windEflat";
   if (cue.order_index === 2) return "dNatural";
@@ -14,7 +23,6 @@ function soundtrackLayerForCue(cue: Cue) {
   if (cue.order_index === 4) return "windChimes";
   if (cue.order_index === 5) return "oceanWaves";
   if (cue.order_index === 6) return "lowDoubleBass";
-  if (cue.order_index === 7) return "oceanWavesCDbEbG";
   return undefined;
 }
 
@@ -77,6 +85,8 @@ export async function POST(request: NextRequest) {
     const performerCues: PerformerCue[] = await Promise.all(
       ((cues ?? []) as Cue[]).map(async (cue) => {
         const cueAssignments = assignmentsByCue.get(cue.id) ?? [];
+        const soundtrackLayer =
+          cue.treatment.soundtrackLayer ?? soundtrackLayerForCue(cue);
         const performerAssignments = await Promise.all(
           cueAssignments.map(async (assignment) => {
             const submission = assignment.submissions ?? null;
@@ -108,7 +118,10 @@ export async function POST(request: NextRequest) {
           ...cue,
           treatment: {
             ...cue.treatment,
-            soundtrackLayer: cue.treatment.soundtrackLayer ?? soundtrackLayerForCue(cue),
+            soundtrackLayer:
+              soundtrackLayer && availableSoundtrackLayers.has(soundtrackLayer)
+                ? soundtrackLayer
+                : undefined,
           },
           assignments: performerAssignments,
         };
