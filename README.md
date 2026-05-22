@@ -5,7 +5,7 @@ A participatory concert web app for audience voice submissions and performer-tri
 ## What This App Does
 
 - Audience members open `/`, receive five random fragments from a larger pool, choose one, speak it normally, and submit it.
-- The browser tries to level the recording, reduce steady background noise, and compare detected speech against the selected text before submission.
+- The browser levels the recording, reduces steady background noise, and compares detected speech against the selected text before submission.
 - The admin opens `/admin`, watches submissions arrive, then closes the performance to generate a random cue map.
 - The performer opens `/perform`, loads the cue map, and advances cues with a keyboard-style foot pedal.
 - The voice material assigned to a cue changes each performance. Cue treatments stay fixed and can be solo, sequential, cacophonous, or a prepared SuperCollider soundtrack cue.
@@ -74,8 +74,8 @@ The `whispers` storage bucket should stay private. The performer page receives s
 
 - The fragment pool is larger than what each audience member sees. `/api/bootstrap` shuffles the full pool per visitor and returns five fragments, so people are not all drawn to whatever sits next to the record button.
 - The audience page asks for normal speaking voice rather than whispering. This gives the performer more usable signal and leaves intimacy to the musical treatment instead of relying on quiet recordings.
-- Each recording is locally processed with a high-pass filter, dynamics compression, a simple noise gate, and peak normalization before upload. This is not mastering, but it gives the cue engine more even material.
-- When browser speech recognition is available, the page compares detected words to the selected fragment and blocks obvious wrong-text takes. Unsupported browsers can still submit, so venue compatibility remains intact.
+- Each recording is locally processed with voice-band filtering, dynamics compression, a simple noise gate, and peak normalization before upload. This is not full source separation, but it removes more room rumble, hiss, and low-level audience spill before the cue engine sees the file.
+- Browser speech recognition is required for submission. The page compares detected words to the selected fragment, and the server independently recomputes the text match before uploading the file. Low-match or no-transcript recordings are rejected and not saved.
 - Closing submissions maps the uneven audience material into cue textures: solo cues use one clear recording, sequence cues stagger several recordings one after another, cacophony cues layer many voices with small offsets, and soundtrack cues reserve space for prepared SuperCollider material.
 - Empty fragments are allowed. Crowded fragments are allowed. The cue map works from whatever submissions exist at closing time.
 

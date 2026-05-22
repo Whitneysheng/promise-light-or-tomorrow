@@ -12,6 +12,8 @@ type Bootstrap = {
 
 type RecorderState = "idle" | "recording" | "review" | "submitting" | "submitted";
 
+const MIN_TEXT_MATCH_SCORE = 0.55;
+
 type SpeechRecognitionLike = {
   continuous: boolean;
   interimResults: boolean;
@@ -122,19 +124,23 @@ async function cleanAndNormalizeAudio(blob: Blob) {
   );
   const source = offline.createBufferSource();
   const highpass = offline.createBiquadFilter();
+  const lowpass = offline.createBiquadFilter();
   const compressor = offline.createDynamicsCompressor();
 
   source.buffer = input;
   highpass.type = "highpass";
-  highpass.frequency.value = 85;
-  compressor.threshold.value = -34;
-  compressor.knee.value = 22;
-  compressor.ratio.value = 3;
+  highpass.frequency.value = 120;
+  lowpass.type = "lowpass";
+  lowpass.frequency.value = 6200;
+  compressor.threshold.value = -38;
+  compressor.knee.value = 18;
+  compressor.ratio.value = 4.5;
   compressor.attack.value = 0.005;
-  compressor.release.value = 0.18;
+  compressor.release.value = 0.16;
 
   source.connect(highpass);
-  highpass.connect(compressor);
+  highpass.connect(lowpass);
+  lowpass.connect(compressor);
   compressor.connect(offline.destination);
   source.start();
 
@@ -155,12 +161,12 @@ async function cleanAndNormalizeAudio(blob: Blob) {
   }
 
   const noiseFloor = Math.sqrt(noiseTotal / Math.max(1, noiseCount));
-  const gate = Math.max(0.006, noiseFloor * 1.6);
+  const gate = Math.max(0.008, noiseFloor * 2.4);
 
   for (let channel = 0; channel < rendered.numberOfChannels; channel += 1) {
     const data = rendered.getChannelData(channel);
     for (let i = 0; i < data.length; i += 1) {
-      if (Math.abs(data[i]) < gate) data[i] *= 0.18;
+      if (Math.abs(data[i]) < gate) data[i] *= 0.06;
       peak = Math.max(peak, Math.abs(data[i]));
     }
   }
@@ -258,11 +264,20 @@ export function AudienceRecorder() {
         return;
       }
 
+      const Recognition = getSpeechRecognition();
+      if (!Recognition) {
+        setError(
+          "This browser cannot verify spoken text. Please use Chrome, Edge, or Safari with speech recognition enabled.",
+        );
+        return;
+      }
+
       const userStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          channelCount: 1,
         },
       });
       stream.current = userStream;
@@ -302,28 +317,29 @@ export function AudienceRecorder() {
       };
 
       mediaRecorder.current = recorder;
-      const Recognition = getSpeechRecognition();
-      if (Recognition) {
-        const speech = new Recognition();
-        speech.continuous = true;
-        speech.interimResults = true;
-        speech.lang = "en-US";
-        speech.onresult = (event) => {
-          let recognized = "";
-          for (let i = event.resultIndex; i < event.results.length; i += 1) {
-            recognized += event.results[i][0].transcript;
-          }
-          setTranscript((current) => `${current} ${recognized}`.trim());
-        };
-        speech.onend = () => {
-          recognition.current = null;
-        };
-        try {
-          speech.start();
-          recognition.current = speech;
-        } catch {
-          recognition.current = null;
+      const speech = new Recognition();
+      speech.continuous = true;
+      speech.interimResults = true;
+      speech.lang = "en-US";
+      speech.onresult = (event) => {
+        let recognized = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          recognized += event.results[i][0].transcript;
         }
+        setTranscript((current) => `${current} ${recognized}`.trim());
+      };
+      speech.onend = () => {
+        recognition.current = null;
+      };
+      try {
+        speech.start();
+        recognition.current = speech;
+      } catch {
+        userStream.getTracks().forEach((track) => track.stop());
+        setError(
+          "Speech verification could not start. Please refresh and record again.",
+        );
+        return;
       }
       startedAt.current = performance.now();
       recorder.start();
@@ -344,7 +360,11 @@ export function AudienceRecorder() {
     if (!bootstrap || !audioBlob || !selectedFragment) return;
     const score = transcript ? textMatchScore(selectedText, transcript) : null;
     setMatchScore(score);
-    if (score !== null && score < 0.48) {
+    if (score === null) {
+      setError("No verified speech was detected. Please record the selected line again.");
+      return;
+    }
+    if (score < MIN_TEXT_MATCH_SCORE) {
       setError("The detected words do not seem close enough to the selected line. Please record it again.");
       return;
     }
@@ -358,7 +378,7 @@ export function AudienceRecorder() {
     formData.append("durationSeconds", String(duration));
     formData.append("transcript", transcript);
     formData.append("textMatchScore", score === null ? "" : String(score));
-    formData.append("processingNotes", "browser high-pass, noise gate, compression, peak normalization");
+    formData.append("processingNotes", "browser voice-band filtering, noise gate, compression, peak normalization");
     formData.append("audio", audioBlob, audioBlob.type.includes("wav") ? "voice.wav" : "voice.webm");
 
     const response = await fetch("/api/submit", {
