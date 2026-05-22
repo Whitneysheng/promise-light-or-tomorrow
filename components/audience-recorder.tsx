@@ -12,10 +12,6 @@ type Bootstrap = {
 
 type RecorderState = "idle" | "recording" | "review" | "submitting" | "submitted";
 type MicPermissionState = "unknown" | "ready" | "blocked";
-type VerificationResult = {
-  ok: boolean;
-  reason?: string;
-};
 
 type SpeechRecognitionLike = {
   continuous: boolean;
@@ -59,67 +55,6 @@ async function getVoiceStream() {
 
 function stopStream(input: MediaStream) {
   input.getTracks().forEach((track) => track.stop());
-}
-
-const blockedWords = new Set([
-  "asshole",
-  "bitch",
-  "cunt",
-  "dick",
-  "fuck",
-  "fucked",
-  "fucker",
-  "fucking",
-  "pussy",
-  "shit",
-  "slut",
-  "whore",
-]);
-
-function normalizedWords(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/['']/g, "")
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function verifyTranscript(expected: string, actual: string): VerificationResult {
-  const expectedWords = normalizedWords(expected);
-  const actualWords = normalizedWords(actual);
-
-  if (!actualWords.length) {
-    return {
-      ok: false,
-      reason:
-        "No verified speech was detected. Please record the selected line again.",
-    };
-  }
-
-  if (actualWords.some((word) => blockedWords.has(word))) {
-    return {
-      ok: false,
-      reason:
-        "The recording includes words outside the selected text. Please record only the selected line.",
-    };
-  }
-
-  const expectedSet = new Set(expectedWords);
-  const matchingWords = actualWords.filter((word) => expectedSet.has(word));
-  const extraWords = actualWords.filter((word) => !expectedSet.has(word));
-  const coverage = matchingWords.length / Math.max(1, expectedWords.length);
-  const lengthDelta = Math.abs(actualWords.length - expectedWords.length);
-
-  if (coverage < 0.8 || lengthDelta > 2 || extraWords.length > 2) {
-    return {
-      ok: false,
-      reason:
-        "The detected words do not match the selected line. Please record only the selected line.",
-    };
-  }
-
-  return { ok: true };
 }
 
 export function AudienceRecorder() {
@@ -298,12 +233,6 @@ export function AudienceRecorder() {
 
   async function submitRecording() {
     if (!bootstrap || !audioBlob || !selectedFragment) return;
-    const verification = verifyTranscript(selectedText, transcript);
-    if (!verification.ok) {
-      setError(verification.reason ?? "Please record the selected line again.");
-      return;
-    }
-
     setRecorderState("submitting");
     setError(null);
 
@@ -416,7 +345,7 @@ export function AudienceRecorder() {
 
         {!transcript && audioUrl && recorderState === "review" && (
           <p className="selected-line">
-            Speech check unavailable on this device. Listen back before submitting.
+            Speech will be checked after you submit.
           </p>
         )}
 

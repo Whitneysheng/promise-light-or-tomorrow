@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { demoModeEnabled } from "@/lib/demo-data";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
+export const runtime = "nodejs";
+export const maxDuration = 60;
+
 type VerificationResult = {
   ok: boolean;
   reason?: string;
@@ -68,6 +71,39 @@ function verifyTranscript(expected: string, actual: string): VerificationResult 
   return { ok: true };
 }
 
+async function transcribeAudio(audio: File) {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Missing OPENAI_API_KEY for server-side transcription.");
+  }
+
+  const body = new FormData();
+  body.append("model", "gpt-4o-mini-transcribe");
+  body.append("response_format", "json");
+  body.append("language", "en");
+  body.append("file", audio);
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body,
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      payload?.error?.message ??
+      `Transcription failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return String(payload?.text ?? "").trim();
+}
+
 export async function POST(request: NextRequest) {
   if (demoModeEnabled()) {
     return NextResponse.json({
@@ -84,7 +120,6 @@ export async function POST(request: NextRequest) {
   const performanceId = String(formData.get("performanceId") ?? "");
   const fragmentId = String(formData.get("fragmentId") ?? "");
   const durationSeconds = Number(formData.get("durationSeconds") ?? 0);
-  const transcript = String(formData.get("transcript") ?? "").trim();
   const audio = formData.get("audio");
 
   if (!performanceId || !fragmentId || !(audio instanceof File)) {
@@ -116,6 +151,21 @@ export async function POST(request: NextRequest) {
 
   if (fragmentError || !fragment) {
     return NextResponse.json({ error: "Invalid fragment." }, { status: 400 });
+  }
+
+  let transcript = "";
+  try {
+    transcript = await transcribeAudio(audio);
+  } catch (transcriptionError) {
+    return NextResponse.json(
+      {
+        error:
+          transcriptionError instanceof Error
+            ? `Could not verify recording: ${transcriptionError.message}`
+            : "Could not verify recording.",
+      },
+      { status: 500 },
+    );
   }
 
   const verification = verifyTranscript(fragment.text, transcript);
