@@ -328,7 +328,7 @@ export function PerformerConsole() {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
     if (cue.treatment.soundtrackLayer === "oceanWaves" && activeVoices.current.length) {
-      void fadeAndStopActiveVoices(6);
+      await fadeAndStopActiveVoices(6);
     }
 
     if (cue.treatment.soundtrackLayer) {
