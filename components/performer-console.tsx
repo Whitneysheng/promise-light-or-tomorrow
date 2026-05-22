@@ -187,7 +187,7 @@ export function PerformerConsole() {
     activeSoundtrackLayers.current.clear();
   }, []);
 
-  const fadeAndStopAll = useCallback(async (seconds = 1.5) => {
+  const fadeAndStopAll = useCallback(async (seconds = 3.5) => {
     const audioContext = context.current;
     if (!audioContext) {
       stopAll();
@@ -199,7 +199,7 @@ export function PerformerConsole() {
       voice.gains.forEach((gain) => {
         gain.gain.cancelScheduledValues(audioContext.currentTime);
         gain.gain.setValueAtTime(gain.gain.value, audioContext.currentTime);
-        gain.gain.linearRampToValueAtTime(0.0001, stopAt);
+        gain.gain.exponentialRampToValueAtTime(0.0001, stopAt);
       });
       voice.sources.forEach((source) => {
         try {
@@ -313,7 +313,7 @@ export function PerformerConsole() {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
     if (cue.treatment.soundtrackLayer === "oceanWaves" && activeVoices.current.length) {
-      await fadeAndStopAll(1.5);
+      await fadeAndStopAll(3.5);
     }
 
     if (cue.treatment.soundtrackLayer) {
