@@ -206,6 +206,8 @@ export function PerformerConsole() {
       const highpass = audioContext.createBiquadFilter();
       const lowpass = audioContext.createBiquadFilter();
       const whoosh = audioContext.createBiquadFilter();
+      const bodyGain = audioContext.createGain();
+      const whooshGain = audioContext.createGain();
       const windGain = audioContext.createGain();
       const lfo = audioContext.createOscillator();
       const lfoDepth = audioContext.createGain();
@@ -219,14 +221,19 @@ export function PerformerConsole() {
       whoosh.type = "bandpass";
       whoosh.frequency.value = 1450;
       whoosh.Q.value = 0.55;
-      windGain.gain.value = 0.34;
+      bodyGain.gain.value = 0.2;
+      whooshGain.gain.value = 0.42;
+      windGain.gain.value = 0.46;
       lfo.frequency.value = 0.08;
       lfoDepth.gain.value = 980;
 
       source.connect(highpass);
       highpass.connect(lowpass);
+      lowpass.connect(bodyGain);
+      bodyGain.connect(windGain);
       lowpass.connect(whoosh);
-      whoosh.connect(windGain);
+      whoosh.connect(whooshGain);
+      whooshGain.connect(windGain);
       windGain.connect(master);
       lfo.connect(lfoDepth);
       lfoDepth.connect(whoosh.frequency);
@@ -234,7 +241,7 @@ export function PerformerConsole() {
       lfo.start();
 
       sources.push(source, lfo);
-      nodes.push(highpass, lowpass, whoosh, windGain, lfoDepth);
+      nodes.push(highpass, lowpass, whoosh, bodyGain, whooshGain, windGain, lfoDepth);
     }
 
     function addTone(
@@ -320,7 +327,7 @@ export function PerformerConsole() {
         2200,
       );
       addSoftBell([622.254, 1244.508, 2489.016, 3733.524], 5);
-      fadeTo(audioContext, master.gain, 0.82, 6);
+      fadeTo(audioContext, master.gain, 1, 4);
     }
 
     if (layer === "dNatural") {
@@ -332,7 +339,7 @@ export function PerformerConsole() {
         1900,
       );
       addSoftBell([587.33, 1174.66, 2349.32, 3523.98], 3);
-      fadeTo(audioContext, master.gain, 0.72, 5);
+      fadeTo(audioContext, master.gain, 0.86, 4);
     }
 
     if (layer === "bflatBnatural") {
@@ -352,7 +359,7 @@ export function PerformerConsole() {
       );
       addSoftBell([466.164, 932.328, 1864.656, 2796.984], 4);
       addSoftBell([493.883, 987.767, 1975.533, 2963.3], 7);
-      fadeTo(audioContext, master.gain, 0.68, 5);
+      fadeTo(audioContext, master.gain, 0.82, 4);
     }
 
     activeSoundtrackLayers.current.add(layer);
@@ -363,9 +370,12 @@ export function PerformerConsole() {
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
+    if (cue.treatment.soundtrackLayer) {
+      await startSoundtrackLayer(cue);
+      return;
+    }
+
     const audioContext = await ensureAudio();
-    const startedSoundtrack = await startSoundtrackLayer(cue);
-    if (startedSoundtrack) return;
     const playableAssignments = cue.assignments.filter(
       (assignment) => assignment.signedUrl,
     );
