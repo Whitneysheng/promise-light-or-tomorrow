@@ -372,7 +372,6 @@ export function PerformerConsole() {
     const cue = data.cues[index];
     if (cue.treatment.soundtrackLayer) {
       await startSoundtrackLayer(cue);
-      return;
     }
 
     const audioContext = await ensureAudio();
@@ -530,12 +529,13 @@ export function PerformerConsole() {
           <strong>{currentCue?.label ?? "before first cue"}</strong>
           <p>{currentCue?.treatment.name ?? "waiting"}</p>
           <small>
-            {currentCue?.treatment.texture === "soundtrack"
-              ? "Built-in additive soundtrack layer."
-              : currentCue?.assignments
+            {currentCue?.assignments
               .map((assignment) => assignment.fragmentText)
               .filter(Boolean)
-              .join(" / ") || "No voice assigned yet."}
+              .join(" / ") ||
+              (currentCue?.treatment.soundtrackLayer
+                ? "Soundtrack plays even without an assigned voice."
+                : "No voice assigned yet.")}
           </small>
         </div>
         <div className="cue-next">
@@ -582,11 +582,11 @@ export function PerformerConsole() {
               <span>{cue.label}</span>
               <strong>{cue.treatment.name ?? "treatment"}</strong>
               <em>
-                {cue.treatment.texture === "soundtrack"
-                  ? "additive soundtrack layer"
-                  : cue.assignments.length
+                {cue.assignments.length
                   ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices`
-                  : "silent fallback"}
+                  : cue.treatment.soundtrackLayer
+                    ? "soundtrack only until voice is loaded"
+                    : "silent fallback"}
               </em>
               <ArrowRight size={16} />
             </button>
