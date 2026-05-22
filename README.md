@@ -73,7 +73,7 @@ The `whispers` storage bucket should stay private. The performer page receives s
 ## Artistic / Technical Design
 
 - The fragment pool is larger than what each audience member sees. `/api/bootstrap` shuffles the full pool per visitor and returns five fragments, so people are not all drawn to whatever sits next to the record button.
-- The audience page asks for normal speaking voice rather than whispering. This gives the performer more usable signal and leaves intimacy to the musical treatment instead of relying on quiet recordings.
+- The audience page asks listeners to speak into the phone microphone held close, like a voice memo. This gives the performer more usable signal and leaves intimacy to the musical treatment instead of relying on quiet recordings.
 - Each recording is locally processed with voice-band filtering, dynamics compression, a simple noise gate, and peak normalization before upload. This is not full source separation, but it removes more room rumble, hiss, and low-level audience spill before the cue engine sees the file.
 - Browser speech recognition is required for submission. The page compares detected words to the selected fragment, and the server independently recomputes the text match before uploading the file. Low-match or no-transcript recordings are rejected and not saved.
 - Closing submissions maps the uneven audience material into cue textures: solo cues use one clear recording, sequence cues stagger several recordings one after another, cacophony cues layer many voices with small offsets, and soundtrack cues reserve space for prepared SuperCollider material.

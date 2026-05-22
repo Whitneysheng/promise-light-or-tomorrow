@@ -159,7 +159,7 @@ export function AdminPanel() {
             <div>
               <h2>Close and randomize</h2>
               <p>
-                This freezes tonight&apos;s mapping. The audience material is
+                This freezes this performance&apos;s mapping. The audience material is
                 randomized into solo, sequential, and staggered texture cues.
               </p>
             </div>

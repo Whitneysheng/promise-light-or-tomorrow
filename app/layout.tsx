@@ -3,7 +3,7 @@ import "./styles.css";
 
 export const metadata: Metadata = {
   title: "promise light or tomorrow",
-  description: "Participatory whisper archive and performance cue system.",
+  description: "Participatory voice archive and performance cue system.",
 };
 
 export default function RootLayout({

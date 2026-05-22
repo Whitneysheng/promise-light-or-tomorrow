@@ -198,6 +198,14 @@ h2 {
   color: var(--muted);
 }
 
+.recording-tip {
+  color: #38332d;
+  font-size: 0.96rem;
+  font-weight: 750;
+  line-height: 1.4;
+  margin: 1rem 0 0.7rem;
+}
+
 .review-player {
   width: 100%;
 }

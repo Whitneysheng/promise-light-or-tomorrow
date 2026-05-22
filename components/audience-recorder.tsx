@@ -416,13 +416,15 @@ export function AudienceRecorder() {
         <p className="eyebrow">participatory voice</p>
         <h1>promise light or tomorrow</h1>
         <p className="intro">
-          Choose one line that resonates with you. Speak it once into this
-          page. Your recording becomes part of tonight&apos;s electronic texture.
+          Choose one line that resonates with you. Speak it once into the
+          phone&apos;s microphone, held close like a voice memo. Your recording
+          becomes part of the performance&apos;s
+          electronic texture.
         </p>
 
         <div className="workflow-strip" aria-label="Recording workflow">
           <span>1. Choose a line</span>
-          <span>2. Speak normally</span>
+          <span>2. Speak into the mic</span>
           <span>3. Review and submit</span>
         </div>
 
@@ -488,11 +490,18 @@ export function AudienceRecorder() {
 
         {error && <p className="error-text">{error}</p>}
 
+        {recorderState !== "submitted" && (
+          <p className="recording-tip">
+            Hold the bottom microphone close to your mouth, like recording a
+            voice memo. Speak the selected line clearly into the mic.
+          </p>
+        )}
+
         <div className="button-row">
           {recorderState === "idle" && (
             <button disabled={!isOpen} onClick={startRecording}>
               <Mic size={18} />
-              Record voice
+              Record close voice
             </button>
           )}
           {recorderState === "recording" && (
