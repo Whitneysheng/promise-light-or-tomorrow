@@ -10,6 +10,9 @@ type VerificationResult = {
   reason?: string;
 };
 
+const mismatchFlag = "possible_mismatch";
+const profanityFlag = "possible_profanity";
+
 const blockedWords = new Set([
   "asshole",
   "bitch",
@@ -34,6 +37,36 @@ function normalizedWords(value: string) {
     .filter(Boolean);
 }
 
+function containsPhrase(actualWords: string[], expectedWords: string[]) {
+  if (!expectedWords.length || actualWords.length < expectedWords.length) {
+    return false;
+  }
+
+  return actualWords.some((_, startIndex) =>
+    expectedWords.every(
+      (word, offset) => actualWords[startIndex + offset] === word,
+    ),
+  );
+}
+
+function transcriptFlags(expected: string, actual: string) {
+  const expectedWords = normalizedWords(expected);
+  const actualWords = normalizedWords(actual);
+  const flags: string[] = [];
+
+  if (!actualWords.length) return flags;
+
+  if (actualWords.some((word) => blockedWords.has(word))) {
+    flags.push(profanityFlag);
+  }
+
+  if (!containsPhrase(actualWords, expectedWords)) {
+    flags.push(mismatchFlag);
+  }
+
+  return flags;
+}
+
 function verifyTranscript(expected: string, actual: string): VerificationResult {
   const expectedWords = normalizedWords(expected);
   const actualWords = normalizedWords(actual);
@@ -54,13 +87,7 @@ function verifyTranscript(expected: string, actual: string): VerificationResult 
     };
   }
 
-  const expectedSet = new Set(expectedWords);
-  const matchingWords = actualWords.filter((word) => expectedSet.has(word));
-  const extraWords = actualWords.filter((word) => !expectedSet.has(word));
-  const coverage = matchingWords.length / Math.max(1, expectedWords.length);
-  const lengthDelta = Math.abs(actualWords.length - expectedWords.length);
-
-  if (coverage < 0.8 || lengthDelta > 2 || extraWords.length > 2) {
+  if (!containsPhrase(actualWords, expectedWords)) {
     return {
       ok: false,
       reason:
@@ -124,6 +151,8 @@ export async function POST(request: NextRequest) {
   const performanceId = String(formData.get("performanceId") ?? "");
   const fragmentId = String(formData.get("fragmentId") ?? "");
   const durationSeconds = Number(formData.get("durationSeconds") ?? 0);
+  const browserTranscript = String(formData.get("transcript") ?? "").trim();
+  const processingNotes = String(formData.get("processingNotes") ?? "").trim();
   const audio = formData.get("audio");
 
   if (!performanceId || !fragmentId || !(audio instanceof File)) {
@@ -157,8 +186,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid fragment." }, { status: 400 });
   }
 
+  let transcript = browserTranscript;
+  let moderationFlags = transcriptFlags(fragment.text, browserTranscript);
+  let moderationNotes = browserTranscript
+    ? "Browser speech recognition used for review flags."
+    : "No browser speech transcript was available.";
+
   if (verificationEnabled()) {
-    let transcript = "";
     try {
       transcript = await transcribeAudio(audio);
     } catch (transcriptionError) {
@@ -182,6 +216,9 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+
+    moderationFlags = [];
+    moderationNotes = "OpenAI transcription verified the selected line.";
   }
 
   const submissionId = crypto.randomUUID();
@@ -219,6 +256,12 @@ export async function POST(request: NextRequest) {
         ? durationSeconds
         : null,
       consent_confirmed: false,
+      transcript: transcript || null,
+      text_match_score: null,
+      processing_notes: processingNotes || moderationNotes,
+      moderation_status: "pending",
+      moderation_flags: moderationFlags,
+      moderation_notes: moderationNotes,
     })
     .select("*")
     .single();

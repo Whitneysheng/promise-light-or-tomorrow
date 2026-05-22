@@ -291,7 +291,7 @@ h2 {
 .metric-grid {
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin: 1rem 0;
 }
 
@@ -362,6 +362,31 @@ h2 {
 
 .list-row span {
   color: var(--muted);
+}
+
+.chip-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.chip {
+  background: rgba(23, 102, 103, 0.12);
+  border: 1px solid rgba(23, 102, 103, 0.25);
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 0.2rem 0.45rem;
+  text-transform: uppercase;
+}
+
+.flag-chip {
+  background: rgba(143, 55, 72, 0.1);
+  border-color: rgba(143, 55, 72, 0.25);
+  color: var(--rose);
 }
 
 .pedal-panel {

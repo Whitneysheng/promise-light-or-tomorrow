@@ -28,6 +28,9 @@ export type Submission = {
   transcript: string | null;
   text_match_score: number | null;
   processing_notes: string | null;
+  moderation_status: "pending" | "approved" | "rejected";
+  moderation_flags: string[];
+  moderation_notes: string | null;
 };
 
 export type CueTexture = "solo" | "sequence" | "cacophony" | "soundtrack";

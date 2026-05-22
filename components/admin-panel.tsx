@@ -1,6 +1,12 @@
 "use client";
 
-import { RefreshCcw, RotateCcw, Shuffle, ShieldCheck } from "lucide-react";
+import {
+  CheckCircle2,
+  RefreshCcw,
+  RotateCcw,
+  Shuffle,
+  ShieldCheck,
+} from "lucide-react";
 import { useState } from "react";
 
 type AdminData = {
@@ -15,7 +21,8 @@ type AdminData = {
   submissions: Array<{
     id: string;
     created_at: string;
-    text_match_score?: number | null;
+    moderation_status?: "pending" | "approved" | "rejected";
+    moderation_flags?: string[] | null;
     fragments?: { text: string };
   }>;
   assignments: Array<{
@@ -94,6 +101,45 @@ export function AdminPanel() {
     await loadSummary();
   }
 
+  async function reviewSubmissions() {
+    setBusy(true);
+    setError(null);
+    const response = await fetch("/api/moderate-submissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        passcode,
+        action: "approve_clean_reject_flagged",
+      }),
+    });
+    const payload = await response.json();
+    setBusy(false);
+
+    if (!response.ok) {
+      setError(payload.error ?? "Could not review submissions.");
+      return;
+    }
+
+    await loadSummary();
+  }
+
+  const approvedCount =
+    data?.submissions.filter(
+      (submission) => submission.moderation_status === "approved",
+    ).length ?? 0;
+  const pendingSubmissions =
+    data?.submissions.filter(
+      (submission) =>
+        !submission.moderation_status ||
+        submission.moderation_status === "pending",
+    ) ?? [];
+  const flaggedPendingCount = pendingSubmissions.filter((submission) =>
+    (submission.moderation_flags ?? []).some(
+      (flag) => flag === "possible_mismatch" || flag === "possible_profanity",
+    ),
+  ).length;
+  const cleanPendingCount = pendingSubmissions.length - flaggedPendingCount;
+
   return (
     <main className="console-shell">
       <section className="console-header">
@@ -142,8 +188,16 @@ export function AdminPanel() {
               <strong>{data.performance.status}</strong>
             </div>
             <div className="metric">
-              <span>Submissions</span>
-              <strong>{data.submissions.length}</strong>
+              <span>Approved</span>
+              <strong>{approvedCount}</strong>
+            </div>
+            <div className="metric">
+              <span>Pending clean</span>
+              <strong>{cleanPendingCount}</strong>
+            </div>
+            <div className="metric">
+              <span>Flagged</span>
+              <strong>{flaggedPendingCount}</strong>
             </div>
             <div className="metric">
               <span>Cues</span>
@@ -157,10 +211,26 @@ export function AdminPanel() {
 
           <section className="action-band">
             <div>
+              <h2>Review submissions</h2>
+              <p>
+                Approves pending recordings with no flags and permanently
+                deletes pending recordings flagged for possible mismatch or
+                profanity.
+              </p>
+            </div>
+            <button onClick={reviewSubmissions} disabled={busy || !passcode}>
+              <CheckCircle2 size={18} />
+              Reject flagged, approve clean
+            </button>
+          </section>
+
+          <section className="action-band">
+            <div>
               <h2>Close and randomize</h2>
               <p>
-                This freezes this performance&apos;s mapping. The audience material is
-                randomized into solo, sequential, and staggered texture cues.
+                This freezes this performance&apos;s mapping. Only approved
+                recordings are randomized into solo, sequential, and staggered
+                texture cues.
               </p>
             </div>
             <button onClick={closePerformance} disabled={busy || !passcode}>
@@ -194,11 +264,19 @@ export function AdminPanel() {
                 {data.submissions.map((submission) => (
                   <div className="list-row" key={submission.id}>
                     <strong>{submission.fragments?.text ?? "fragment"}</strong>
-                    <span>
-                      {submission.text_match_score == null
-                        ? new Date(submission.created_at).toLocaleTimeString()
-                        : `${Math.round(submission.text_match_score * 100)}% match`}
-                    </span>
+                    <div className="chip-row">
+                      <span className="chip">
+                        {submission.moderation_status ?? "pending"}
+                      </span>
+                      {(submission.moderation_flags ?? []).map((flag) => (
+                        <span className="chip flag-chip" key={flag}>
+                          {flag.replace("possible_", "possible ")}
+                        </span>
+                      ))}
+                      <span>
+                        {new Date(submission.created_at).toLocaleTimeString()}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -78,9 +78,10 @@ The `whispers` storage bucket should stay private. The performer page receives s
 - The audience page asks listeners to speak into the phone microphone held close, like a voice memo. This gives the performer more usable signal and leaves intimacy to the musical treatment instead of relying on quiet recordings.
 - Each recording is uploaded as the browser captures it, without client-side denoising or normalization. This keeps the source voice cleaner and avoids crunchy artifacts; any transformation belongs in the performer cue engine.
 - The performer console analyzes each decoded voice and applies bounded loudness compensation at playback. Quiet voices get lifted, loud voices get reduced, and the original uploaded files remain untouched.
-- Optional high-stakes verification can be enabled with `VERIFY_WITH_OPENAI_TRANSCRIPTION=true`. When enabled, the API transcribes uploaded audio with OpenAI, checks that the transcript matches the selected line, rejects profanity, and only then saves the audio to Supabase. Leave it `false` to avoid paid API usage.
-- Browser speech recognition is required for submission. The page compares detected words to the selected fragment, and the server independently recomputes the text match before uploading the file. Low-match or no-transcript recordings are rejected and not saved.
-- Closing submissions maps the uneven audience material into cue textures: solo cues use one clear recording, sequence cues stagger several recordings one after another, cacophony cues layer many voices with small offsets, and soundtrack cues reserve space for prepared SuperCollider material.
+- Optional high-stakes verification can be enabled with `VERIFY_WITH_OPENAI_TRANSCRIPTION=true`. When enabled, the API transcribes uploaded audio with OpenAI, checks that the transcript contains the selected line, rejects profanity, and then saves the audio to Supabase for admin review. Leave it `false` to avoid paid API usage.
+- Browser speech recognition is treated as a best-effort review aid, not a hard gate. When a browser transcript is available, the server stores simple flags for possible mismatch or possible profanity. It does not show a match percentage, because browser transcripts can repeat interim phrases and create misleading scores.
+- The admin page has a bulk review button: **Reject flagged, approve clean**. It approves pending recordings with no flags and permanently deletes pending recordings flagged for possible mismatch or profanity.
+- Closing submissions maps only approved audience material into cue textures: solo cues use one clear recording, sequence cues stagger several recordings one after another, cacophony cues layer many voices with small offsets, and soundtrack cues reserve space for prepared SuperCollider material.
 - Empty fragments are allowed. Crowded fragments are allowed. The cue map works from whatever submissions exist at closing time.
 
 ## Vercel Hosting
@@ -102,11 +103,12 @@ Use `app.whitneysheng.com` so your existing `whitneysheng.com` site can remain u
 2. Audience scans the QR code for `https://app.whitneysheng.com`.
 3. A few minutes before the piece, go to `/admin`.
 4. Enter the admin passcode.
-5. Click **Close submissions**.
-6. Go to `/perform`.
-7. Enter the same passcode and click **Load cues**.
-8. Click **Unlock audio** once.
-9. Use a foot pedal that sends `Space`, `Enter`, or `ArrowRight`.
+5. Click **Reject flagged, approve clean**.
+6. Click **Close submissions**.
+7. Go to `/perform`.
+8. Enter the same passcode and click **Load cues**.
+9. Click **Unlock audio** once.
+10. Use a foot pedal that sends `Space`, `Enter`, or `ArrowRight`.
 
 To reopen submissions for another test or performance, use **Reset and
 reopen** on `/admin`. This deletes the old audio files, submission rows, and

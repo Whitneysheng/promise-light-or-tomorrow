@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
           .from("submissions")
           .select("*")
           .eq("performance_id", performance.id)
+          .eq("moderation_status", "approved")
           .order("created_at", { ascending: true }),
       ]);
 
@@ -152,7 +153,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       performance: updatedPerformance,
       assignmentCount: assignmentRows.length,
-      submissionCount: shuffled.length,
+      approvedSubmissionCount: shuffled.length,
     });
   } catch (error) {
     return NextResponse.json(

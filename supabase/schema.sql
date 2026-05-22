@@ -1,6 +1,11 @@
 create extension if not exists pgcrypto;
 
-create type performance_status as enum ('open', 'closed', 'performed');
+do $$
+begin
+  create type performance_status as enum ('open', 'closed', 'performed');
+exception
+  when duplicate_object then null;
+end $$;
 
 create table if not exists performances (
   id uuid primary key default gen_random_uuid(),
@@ -30,7 +35,10 @@ create table if not exists submissions (
   consent_confirmed boolean not null default false,
   transcript text,
   text_match_score numeric,
-  processing_notes text
+  processing_notes text,
+  moderation_status text not null default 'pending',
+  moderation_flags text[] not null default '{}'::text[],
+  moderation_notes text
 );
 
 create table if not exists cues (
@@ -56,6 +64,9 @@ create table if not exists cue_assignments (
 alter table submissions add column if not exists transcript text;
 alter table submissions add column if not exists text_match_score numeric;
 alter table submissions add column if not exists processing_notes text;
+alter table submissions add column if not exists moderation_status text not null default 'pending';
+alter table submissions add column if not exists moderation_flags text[] not null default '{}'::text[];
+alter table submissions add column if not exists moderation_notes text;
 alter table cue_assignments add column if not exists start_offset_seconds numeric not null default 0;
 alter table cue_assignments add column if not exists gain numeric not null default 1;
 alter table cue_assignments drop constraint if exists cue_assignments_performance_id_cue_id_key;
