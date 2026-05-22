@@ -36,12 +36,14 @@ const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
   dNatural: "/soundtrack/02_d_natural_only_stem.wav",
   bflatBnatural: "/soundtrack/03_bflat_bnatural_stem.wav",
+  windChimes: "/soundtrack/04_wind_chimes_stem.wav",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 const soundtrackGains = {
   windEflat: 0.48,
   dNatural: 0.72,
   bflatBnatural: 0.72,
+  windChimes: 0.78,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
 function distortionCurve(amount: number) {
