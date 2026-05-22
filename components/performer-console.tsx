@@ -166,9 +166,11 @@ export function PerformerConsole() {
     if (existing) return existing;
 
     const audioContext = await ensureAudio();
-    const response = await fetch(soundtrackAssets[layer]);
+    const response = await fetch(soundtrackAssets[layer], { cache: "no-store" });
     if (!response.ok) {
-      throw new Error(`Missing soundtrack file: ${soundtrackAssets[layer]}`);
+      throw new Error(
+        `Missing rendered SC stem: ${soundtrackAssets[layer]}. No browser-rendered fallback will play.`,
+      );
     }
 
     const arrayBuffer = await response.arrayBuffer();
