@@ -158,7 +158,7 @@ export function AudienceRecorder() {
           : "";
       const recorder = new MediaRecorder(
         userStream,
-        mimeType ? { mimeType } : undefined,
+        mimeType ? { mimeType, audioBitsPerSecond: 128000 } : undefined,
       );
       const chunks: BlobPart[] = [];
 

@@ -28,6 +28,10 @@ type ActiveVoice = {
   nodes: AudioNode[];
 };
 
+const TARGET_VOICE_RMS = 0.105;
+const MIN_VOICE_GAIN = 0.35;
+const MAX_VOICE_GAIN = 2.8;
+
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
   dNatural: "/soundtrack/02_d_natural_only_stem.wav",
@@ -81,6 +85,50 @@ function impulse(context: AudioContext, seconds: number) {
   }
 
   return buffer;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function voiceRms(buffer: AudioBuffer) {
+  const windowSize = Math.max(256, Math.floor(buffer.sampleRate * 0.05));
+  const windowScores: number[] = [];
+
+  for (let start = 0; start < buffer.length; start += windowSize) {
+    const end = Math.min(buffer.length, start + windowSize);
+    let total = 0;
+    let count = 0;
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const data = buffer.getChannelData(channel);
+      for (let i = start; i < end; i += 1) {
+        total += data[i] * data[i];
+        count += 1;
+      }
+    }
+
+    windowScores.push(Math.sqrt(total / Math.max(1, count)));
+  }
+
+  const sorted = windowScores
+    .filter((score) => Number.isFinite(score) && score > 0.001)
+    .sort((a, b) => b - a);
+
+  if (!sorted.length) return 0;
+
+  const voicedWindowCount = Math.max(1, Math.ceil(sorted.length * 0.35));
+  const voicedTotal = sorted
+    .slice(0, voicedWindowCount)
+    .reduce((sum, score) => sum + score, 0);
+
+  return voicedTotal / voicedWindowCount;
+}
+
+function loudnessGain(buffer: AudioBuffer) {
+  const rms = voiceRms(buffer);
+  if (!rms) return 1;
+  return clamp(TARGET_VOICE_RMS / rms, MIN_VOICE_GAIN, MAX_VOICE_GAIN);
 }
 
 export function PerformerConsole() {
@@ -248,7 +296,8 @@ export function PerformerConsole() {
         );
         source.playbackRate.value = treatment.playbackRate ?? 1;
 
-        gain.gain.value = (treatment.gain ?? 0.65) * assignment.gain;
+        gain.gain.value =
+          (treatment.gain ?? 0.65) * assignment.gain * loudnessGain(buffer);
         filter.type = treatment.filterType ?? "lowpass";
         filter.frequency.value = treatment.filterFrequency ?? 2400;
         shaper.curve = distortionCurve(treatment.distortion ?? 0.02);
