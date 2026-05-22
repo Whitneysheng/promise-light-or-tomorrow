@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureDefaultCues } from "@/lib/default-cues";
 import { makeSeed, seededShuffle } from "@/lib/random";
 import { activeSlug, assertAdmin, getSupabaseAdmin } from "@/lib/supabase-server";
 import type { Cue, CueTexture, Submission } from "@/lib/types";
@@ -49,6 +50,8 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       );
     }
+
+    await ensureDefaultCues(supabase, performance.id);
 
     const [{ data: cues, error: cuesError }, { data: submissions, error: submissionsError }] =
       await Promise.all([

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureDefaultCues } from "@/lib/default-cues";
 import { activeSlug, assertAdmin, getSupabaseAdmin } from "@/lib/supabase-server";
 import type { Cue, CueAssignment, PerformerCue, Submission } from "@/lib/types";
 
@@ -13,6 +14,7 @@ function soundtrackLayerForCue(cue: Cue) {
   if (cue.order_index === 4) return "windChimes";
   if (cue.order_index === 5) return "oceanWaves";
   if (cue.order_index === 6) return "lowDoubleBass";
+  if (cue.order_index === 7) return "oceanWavesCDbEbG";
   return undefined;
 }
 
@@ -34,6 +36,8 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       );
     }
+
+    await ensureDefaultCues(supabase, performance.id);
 
     const [{ data: cues, error: cuesError }, { data: assignments, error: assignmentsError }] =
       await Promise.all([

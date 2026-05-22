@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ensureDefaultCues } from "@/lib/default-cues";
 import { activeSlug, assertAdmin, getSupabaseAdmin } from "@/lib/supabase-server";
 
 export async function POST(request: NextRequest) {
@@ -19,6 +20,8 @@ export async function POST(request: NextRequest) {
         { status: 404 },
       );
     }
+
+    await ensureDefaultCues(supabase, performance.id);
 
     const [fragments, cues, submissions, assignments] = await Promise.all([
       supabase
