@@ -41,6 +41,7 @@ const soundtrackAssets = {
   oceanWaves: "/soundtrack/05_gentle_ocean_waves_stem.wav",
   lowDoubleBass: "/soundtrack/06_low_double_bass_vibration_stem.wav",
   oceanWavesCDbEbG: "/soundtrack/07_gentle_ocean_waves_c_db_eb_g_stem.wav",
+  whimsicalIce: "/soundtrack/08_whimsical_ice_percussion_stem.wav",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 const soundtrackGains = {
@@ -51,6 +52,7 @@ const soundtrackGains = {
   oceanWaves: 0.7,
   lowDoubleBass: 0.72,
   oceanWavesCDbEbG: 0.7,
+  whimsicalIce: 0.78,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
 const soundtrackNames = {
@@ -61,6 +63,7 @@ const soundtrackNames = {
   oceanWaves: "Ocean waves + bowed vibraphone",
   lowDoubleBass: "Low double bass sul ponticello",
   oceanWavesCDbEbG: "Ocean waves C / D-flat / E-flat / G",
+  whimsicalIce: "Whimsical ice percussion",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 function cueNumberLabel(index: number | null | undefined) {
