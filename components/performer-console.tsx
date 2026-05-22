@@ -49,6 +49,14 @@ const soundtrackGains = {
   oceanWaves: 0.7,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
+const soundtrackStartOffsets = {
+  windEflat: 0,
+  dNatural: 0,
+  bflatBnatural: 0,
+  windChimes: 3,
+  oceanWaves: 2,
+} satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
+
 const soundtrackNames = {
   windEflat: "Wind + E-flat",
   dNatural: "D natural layer",
@@ -187,7 +195,7 @@ export function PerformerConsole() {
     activeSoundtrackLayers.current.clear();
   }, []);
 
-  const fadeAndStopAll = useCallback(async (seconds = 3.5) => {
+  const fadeAndStopActiveVoices = useCallback(async (seconds = 6) => {
     const audioContext = context.current;
     if (!audioContext) {
       stopAll();
@@ -195,7 +203,13 @@ export function PerformerConsole() {
     }
 
     const stopAt = audioContext.currentTime + seconds;
-    activeVoices.current.forEach((voice) => {
+    const voicesToFade = [...activeVoices.current];
+    activeVoices.current = activeVoices.current.filter(
+      (voice) => !voicesToFade.includes(voice),
+    );
+    activeSoundtrackLayers.current.clear();
+
+    voicesToFade.forEach((voice) => {
       voice.gains.forEach((gain) => {
         gain.gain.cancelScheduledValues(audioContext.currentTime);
         gain.gain.setValueAtTime(gain.gain.value, audioContext.currentTime);
@@ -211,11 +225,9 @@ export function PerformerConsole() {
     });
 
     await wait(seconds);
-    activeVoices.current.forEach((voice) => {
+    voicesToFade.forEach((voice) => {
       voice.nodes.forEach((node) => node.disconnect());
     });
-    activeVoices.current = [];
-    activeSoundtrackLayers.current.clear();
   }, [stopAll]);
 
   const ensureAudio = useCallback(async () => {
@@ -302,7 +314,10 @@ export function PerformerConsole() {
     gain.gain.value = soundtrackGains[layer];
     source.connect(gain);
     gain.connect(audioContext.destination);
-    source.start();
+    source.start(
+      audioContext.currentTime,
+      Math.min(soundtrackStartOffsets[layer], buffer.duration - 0.05),
+    );
 
     activeSoundtrackLayers.current.add(layer);
     activeVoices.current.push({ sources: [source], nodes: [gain], gains: [gain] });
@@ -313,7 +328,7 @@ export function PerformerConsole() {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
     if (cue.treatment.soundtrackLayer === "oceanWaves" && activeVoices.current.length) {
-      await fadeAndStopAll(3.5);
+      void fadeAndStopActiveVoices(6);
     }
 
     if (cue.treatment.soundtrackLayer) {
@@ -393,7 +408,7 @@ export function PerformerConsole() {
         });
       }),
     );
-  }, [data, decodeAssignment, ensureAudio, fadeAndStopAll, startSoundtrackLayer]);
+  }, [data, decodeAssignment, ensureAudio, fadeAndStopActiveVoices, startSoundtrackLayer]);
 
   const advance = useCallback(async () => {
     if (!data?.cues.length) {
