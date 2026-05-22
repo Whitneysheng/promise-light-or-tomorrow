@@ -104,6 +104,10 @@ async function transcribeAudio(audio: File) {
   return String(payload?.text ?? "").trim();
 }
 
+function verificationEnabled() {
+  return process.env.VERIFY_WITH_OPENAI_TRANSCRIPTION === "true";
+}
+
 export async function POST(request: NextRequest) {
   if (demoModeEnabled()) {
     return NextResponse.json({
@@ -153,27 +157,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid fragment." }, { status: 400 });
   }
 
-  let transcript = "";
-  try {
-    transcript = await transcribeAudio(audio);
-  } catch (transcriptionError) {
-    return NextResponse.json(
-      {
-        error:
-          transcriptionError instanceof Error
-            ? `Could not verify recording: ${transcriptionError.message}`
-            : "Could not verify recording.",
-      },
-      { status: 500 },
-    );
-  }
+  if (verificationEnabled()) {
+    let transcript = "";
+    try {
+      transcript = await transcribeAudio(audio);
+    } catch (transcriptionError) {
+      return NextResponse.json(
+        {
+          error:
+            transcriptionError instanceof Error
+              ? `Could not verify recording: ${transcriptionError.message}`
+              : "Could not verify recording.",
+        },
+        { status: 500 },
+      );
+    }
 
-  const verification = verifyTranscript(fragment.text, transcript);
-  if (!verification.ok) {
-    return NextResponse.json(
-      { error: verification.reason ?? "Please record the selected line again." },
-      { status: 400 },
-    );
+    const verification = verifyTranscript(fragment.text, transcript);
+    if (!verification.ok) {
+      return NextResponse.json(
+        {
+          error: verification.reason ?? "Please record the selected line again.",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   const submissionId = crypto.randomUUID();

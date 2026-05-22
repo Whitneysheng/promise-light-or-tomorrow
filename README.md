@@ -56,6 +56,7 @@ A participatory concert web app for audience voice submissions and performer-tri
    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
    ADMIN_PASSCODE=choose-a-long-private-passcode
    ACTIVE_PERFORMANCE_SLUG=promise-light-or-tomorrow
+   VERIFY_WITH_OPENAI_TRANSCRIPTION=false
    OPENAI_API_KEY=your-openai-api-key
    ```
 
@@ -77,7 +78,7 @@ The `whispers` storage bucket should stay private. The performer page receives s
 - The audience page asks listeners to speak into the phone microphone held close, like a voice memo. This gives the performer more usable signal and leaves intimacy to the musical treatment instead of relying on quiet recordings.
 - Each recording is uploaded as the browser captures it, without client-side denoising or normalization. This keeps the source voice cleaner and avoids crunchy artifacts; any transformation belongs in the performer cue engine.
 - The performer console analyzes each decoded voice and applies bounded loudness compensation at playback. Quiet voices get lifted, loud voices get reduced, and the original uploaded files remain untouched.
-- Submissions are verified server-side: the API transcribes the uploaded audio, checks that the transcript matches the selected line, rejects profanity, and only then saves the audio to Supabase. Browser speech recognition is used only as a preview when available.
+- Optional high-stakes verification can be enabled with `VERIFY_WITH_OPENAI_TRANSCRIPTION=true`. When enabled, the API transcribes uploaded audio with OpenAI, checks that the transcript matches the selected line, rejects profanity, and only then saves the audio to Supabase. Leave it `false` to avoid paid API usage.
 - Browser speech recognition is required for submission. The page compares detected words to the selected fragment, and the server independently recomputes the text match before uploading the file. Low-match or no-transcript recordings are rejected and not saved.
 - Closing submissions maps the uneven audience material into cue textures: solo cues use one clear recording, sequence cues stagger several recordings one after another, cacophony cues layer many voices with small offsets, and soundtrack cues reserve space for prepared SuperCollider material.
 - Empty fragments are allowed. Crowded fragments are allowed. The cue map works from whatever submissions exist at closing time.
