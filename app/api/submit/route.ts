@@ -2,27 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { demoModeEnabled } from "@/lib/demo-data";
 import { getSupabaseAdmin } from "@/lib/supabase-server";
 
-function words(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9'\s]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-function textMatchScore(expected: string, actual: string) {
-  const expectedWords = new Set(words(expected));
-  const actualWords = new Set(words(actual));
-  if (!expectedWords.size || !actualWords.size) return 0;
-
-  let matches = 0;
-  expectedWords.forEach((word) => {
-    if (actualWords.has(word)) matches += 1;
-  });
-
-  return matches / expectedWords.size;
-}
-
 export async function POST(request: NextRequest) {
   if (demoModeEnabled()) {
     return NextResponse.json({
@@ -39,9 +18,6 @@ export async function POST(request: NextRequest) {
   const performanceId = String(formData.get("performanceId") ?? "");
   const fragmentId = String(formData.get("fragmentId") ?? "");
   const durationSeconds = Number(formData.get("durationSeconds") ?? 0);
-  const transcript = String(formData.get("transcript") ?? "").trim();
-  const clientTextMatchScore = Number(formData.get("textMatchScore") ?? NaN);
-  const processingNotes = String(formData.get("processingNotes") ?? "").trim();
   const audio = formData.get("audio");
 
   if (!performanceId || !fragmentId || !(audio instanceof File)) {
@@ -66,7 +42,7 @@ export async function POST(request: NextRequest) {
 
   const { data: fragment, error: fragmentError } = await supabase
     .from("fragments")
-    .select("id,text")
+    .select("id")
     .eq("id", fragmentId)
     .eq("performance_id", performanceId)
     .single();
@@ -74,10 +50,6 @@ export async function POST(request: NextRequest) {
   if (fragmentError || !fragment) {
     return NextResponse.json({ error: "Invalid fragment." }, { status: 400 });
   }
-
-  const serverTextMatchScore = transcript
-    ? textMatchScore(fragment.text, transcript)
-    : null;
 
   const submissionId = crypto.randomUUID();
   const extension = audio.type.includes("wav")
@@ -114,13 +86,6 @@ export async function POST(request: NextRequest) {
         ? durationSeconds
         : null,
       consent_confirmed: false,
-      transcript: transcript || null,
-      text_match_score: serverTextMatchScore,
-      processing_notes:
-        processingNotes ||
-        (Number.isFinite(clientTextMatchScore)
-          ? `client match ${clientTextMatchScore}`
-          : null),
     })
     .select("*")
     .single();
