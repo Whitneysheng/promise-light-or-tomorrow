@@ -49,14 +49,6 @@ const soundtrackGains = {
   oceanWaves: 0.7,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
-const soundtrackStartOffsets = {
-  windEflat: 0,
-  dNatural: 0,
-  bflatBnatural: 0,
-  windChimes: 3,
-  oceanWaves: 2,
-} satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
-
 const soundtrackNames = {
   windEflat: "Wind + E-flat",
   dNatural: "D natural layer",
@@ -168,6 +160,30 @@ function loudnessGain(buffer: AudioBuffer) {
   return clamp(TARGET_VOICE_RMS / rms, MIN_VOICE_GAIN, MAX_VOICE_GAIN);
 }
 
+function leadingSoundOffset(buffer: AudioBuffer) {
+  const windowSize = Math.max(128, Math.floor(buffer.sampleRate * 0.025));
+  const silenceThreshold = 0.00008;
+  const prerollFrames = Math.floor(buffer.sampleRate * 0.02);
+
+  for (let start = 0; start < buffer.length; start += windowSize) {
+    const end = Math.min(buffer.length, start + windowSize);
+    let peak = 0;
+
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const data = buffer.getChannelData(channel);
+      for (let i = start; i < end; i += 1) {
+        peak = Math.max(peak, Math.abs(data[i]));
+      }
+    }
+
+    if (peak >= silenceThreshold) {
+      return Math.max(0, start - prerollFrames) / buffer.sampleRate;
+    }
+  }
+
+  return 0;
+}
+
 export function PerformerConsole() {
   const [passcode, setPasscode] = useState("");
   const [data, setData] = useState<PerformerData | null>(null);
@@ -203,7 +219,7 @@ export function PerformerConsole() {
     }
 
     const now = audioContext.currentTime;
-    const firstStageEnd = now + seconds * 0.7;
+    const firstStageEnd = now + seconds * 0.78;
     const stopAt = audioContext.currentTime + seconds;
     const voicesToFade = [...activeVoices.current];
     activeVoices.current = activeVoices.current.filter(
@@ -320,7 +336,7 @@ export function PerformerConsole() {
     gain.connect(audioContext.destination);
     source.start(
       audioContext.currentTime,
-      Math.min(soundtrackStartOffsets[layer], buffer.duration - 0.05),
+      Math.min(leadingSoundOffset(buffer), buffer.duration - 0.05),
     );
 
     activeSoundtrackLayers.current.add(layer);
