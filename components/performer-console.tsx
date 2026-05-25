@@ -12,7 +12,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CueTreatment, PerformerCue } from "@/lib/types";
+import type { CueTreatment, PerformerCue, PerformerVoice } from "@/lib/types";
 
 type PerformerData = {
   performance: {
@@ -21,13 +21,17 @@ type PerformerData = {
     seed: string | null;
   };
   cues: PerformerCue[];
+  voicePool: PerformerVoice[];
 };
 
 type ActiveVoice = {
+  kind: "soundtrack" | "voice";
   sources: AudioScheduledSourceNode[];
   nodes: AudioNode[];
   gains: GainNode[];
 };
+
+type VoiceProfile = "distant" | "static" | "swarm" | "mechanical" | "underwater" | "plain";
 
 const TARGET_VOICE_RMS = 0.105;
 const MIN_VOICE_GAIN = 0.35;
@@ -45,6 +49,9 @@ const VOICE_SILENCE_THRESHOLD = 0.00008;
 const SOUNDTRACK_SILENCE_THRESHOLD = 0.003;
 const FINAL_VOICE_CUE_INDEX = 10;
 const FINAL_FADE_SECONDS = 2;
+const MAX_ACTIVE_VOICE_GRAINS = 64;
+const CUE_ONE_REPEAT_SECONDS = 2;
+const CUE_ONE_FIRST_ENTRY_SECONDS = 2;
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -92,6 +99,10 @@ function cueDisplayName(cue: PerformerCue | null | undefined) {
     ? soundtrackNames[cue.treatment.soundtrackLayer]
     : null;
   return soundtrackName ?? cue.treatment.name ?? "treatment";
+}
+
+function cueHasLiveVoiceBehavior(cue: PerformerCue | null | undefined) {
+  return cue ? [1, 4, 5, 7, 8, 9, 10].includes(cue.order_index) : false;
 }
 
 function wait(seconds: number) {
@@ -233,6 +244,91 @@ function trimLeadingSilence(
   return trimmed;
 }
 
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * (max - min);
+}
+
+function voiceProfileParams(profile: VoiceProfile) {
+  if (profile === "distant") {
+    return {
+      gain: 0.3,
+      filterType: "lowpass" as BiquadFilterType,
+      filterFrequency: randomBetween(1200, 2200),
+      distortion: 0.01,
+      reverb: 0.72,
+      delay: randomBetween(0.08, 0.14),
+      playbackRate: randomBetween(0.94, 1.03),
+    };
+  }
+  if (profile === "static") {
+    return {
+      gain: 0.62,
+      filterType: "bandpass" as BiquadFilterType,
+      filterFrequency: randomBetween(700, 2400),
+      distortion: 0.22,
+      reverb: 0.08,
+      delay: 0,
+      playbackRate: randomBetween(0.96, 1.04),
+    };
+  }
+  if (profile === "mechanical") {
+    return {
+      gain: 0.46,
+      filterType: "bandpass" as BiquadFilterType,
+      filterFrequency: randomBetween(900, 3600),
+      distortion: randomBetween(0.18, 0.34),
+      reverb: 0.18,
+      delay: randomBetween(0.018, 0.06),
+      playbackRate: randomBetween(0.72, 1.28),
+    };
+  }
+  if (profile === "underwater") {
+    return {
+      gain: 0.54,
+      filterType: "lowpass" as BiquadFilterType,
+      filterFrequency: randomBetween(420, 900),
+      distortion: 0.015,
+      reverb: 0.64,
+      delay: randomBetween(0.05, 0.16),
+      playbackRate: randomBetween(0.86, 0.98),
+    };
+  }
+  if (profile === "swarm") {
+    return {
+      gain: 0.22,
+      filterType: "bandpass" as BiquadFilterType,
+      filterFrequency: randomBetween(650, 4200),
+      distortion: randomBetween(0.03, 0.12),
+      reverb: 0.22,
+      delay: 0,
+      playbackRate: randomBetween(0.72, 1.42),
+    };
+  }
+  return {
+    gain: 0.82,
+    filterType: "lowpass" as BiquadFilterType,
+    filterFrequency: 3200,
+    distortion: 0.02,
+    reverb: 0.08,
+    delay: 0,
+    playbackRate: 1,
+  };
+}
+
+function swarmInterval(elapsedSeconds: number) {
+  if (elapsedSeconds < 5) return randomBetween(0.75, 1.25);
+  if (elapsedSeconds < 10) return 0.04;
+  if (elapsedSeconds < 15) return 0.03;
+  if (elapsedSeconds < 20) return 0.02;
+  return 0.01;
+}
+
+function swarmSliceDuration(elapsedSeconds: number) {
+  if (elapsedSeconds < 5) return randomBetween(0.8, 2.5);
+  if (elapsedSeconds < 10) return randomBetween(0.2, 0.5);
+  return randomBetween(0.04, 0.18);
+}
+
 export function PerformerConsole() {
   const [passcode, setPasscode] = useState("");
   const [data, setData] = useState<PerformerData | null>(null);
@@ -244,9 +340,18 @@ export function PerformerConsole() {
   const decoded = useRef<Map<string, AudioBuffer>>(new Map());
   const activeVoices = useRef<ActiveVoice[]>([]);
   const activeSoundtrackLayers = useRef<Set<string>>(new Set());
+  const voiceTimers = useRef<number[]>([]);
+  const voiceRunId = useRef(0);
+  const voicePoolCursor = useRef(0);
+  const voicePoolOrder = useRef<number[]>([]);
 
-  const stopAll = useCallback(() => {
-    activeVoices.current.forEach((voice) => {
+  const clearVoiceTimers = useCallback(() => {
+    voiceTimers.current.forEach((timer) => window.clearTimeout(timer));
+    voiceTimers.current = [];
+  }, []);
+
+  const stopActiveVoices = useCallback((voices: ActiveVoice[]) => {
+    voices.forEach((voice) => {
       voice.sources.forEach((source) => {
         try {
           source.stop();
@@ -254,13 +359,28 @@ export function PerformerConsole() {
           // Sources may already be stopped.
         }
       });
-      voice.nodes.forEach((node) => node.disconnect());
+      voice.nodes.forEach((node) => {
+        try {
+          node.disconnect();
+        } catch {
+          // Nodes may already be disconnected by an earlier cue change.
+        }
+      });
     });
-    activeVoices.current = [];
-    activeSoundtrackLayers.current.clear();
   }, []);
 
-  const fadeAndStopActiveVoices = useCallback(async (seconds = SECTION_CUE_FADE_SECONDS) => {
+  const stopAll = useCallback(() => {
+    clearVoiceTimers();
+    voiceRunId.current += 1;
+    stopActiveVoices(activeVoices.current);
+    activeVoices.current = [];
+    activeSoundtrackLayers.current.clear();
+  }, [clearVoiceTimers, stopActiveVoices]);
+
+  const fadeAndStopActiveVoices = useCallback(async (
+    seconds = SECTION_CUE_FADE_SECONDS,
+    kind?: ActiveVoice["kind"],
+  ) => {
     const audioContext = context.current;
     if (!audioContext) {
       stopAll();
@@ -270,11 +390,11 @@ export function PerformerConsole() {
     const now = audioContext.currentTime;
     const firstStageEnd = now + seconds * 0.78;
     const stopAt = audioContext.currentTime + seconds;
-    const voicesToFade = [...activeVoices.current];
+    const voicesToFade = activeVoices.current.filter((voice) => !kind || voice.kind === kind);
     activeVoices.current = activeVoices.current.filter(
       (voice) => !voicesToFade.includes(voice),
     );
-    activeSoundtrackLayers.current.clear();
+    if (!kind || kind === "soundtrack") activeSoundtrackLayers.current.clear();
 
     voicesToFade.forEach((voice) => {
       voice.gains.forEach((gain) => {
@@ -298,6 +418,13 @@ export function PerformerConsole() {
       voice.nodes.forEach((node) => node.disconnect());
     });
   }, [stopAll]);
+
+  const stopVoiceBehavior = useCallback(() => {
+    clearVoiceTimers();
+    voiceRunId.current += 1;
+    stopActiveVoices(activeVoices.current.filter((voice) => voice.kind === "voice"));
+    activeVoices.current = activeVoices.current.filter((voice) => voice.kind !== "voice");
+  }, [clearVoiceTimers, stopActiveVoices]);
 
   const ensureAudio = useCallback(async () => {
     if (!context.current) {
@@ -348,6 +475,39 @@ export function PerformerConsole() {
     return treated;
   }, [ensureAudio]);
 
+  const decodePooledVoice = useCallback(async (voice: PerformerVoice) => {
+    const key = `voice:${voice.id}`;
+    const existing = decoded.current.get(key);
+    if (existing) return existing;
+
+    const audioContext = await ensureAudio();
+    const response = await fetch(voice.signedUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = await audioContext.decodeAudioData(arrayBuffer);
+    const trimmed = trimLeadingSilence(audioContext, buffer, VOICE_SILENCE_THRESHOLD);
+    decoded.current.set(key, trimmed);
+    return trimmed;
+  }, [ensureAudio]);
+
+  const nextPooledVoice = useCallback(() => {
+    const pool = data?.voicePool?.filter((voice) => voice.signedUrl) ?? [];
+    if (!pool.length) return null;
+
+    if (voicePoolOrder.current.length !== pool.length) {
+      voicePoolOrder.current = pool.map((_, index) => index).sort(() => Math.random() - 0.5);
+      voicePoolCursor.current = 0;
+    }
+
+    if (voicePoolCursor.current >= voicePoolOrder.current.length) {
+      voicePoolOrder.current = pool.map((_, index) => index).sort(() => Math.random() - 0.5);
+      voicePoolCursor.current = 0;
+    }
+
+    const index = voicePoolOrder.current[voicePoolCursor.current] ?? 0;
+    voicePoolCursor.current += 1;
+    return pool[index] ?? pool[0];
+  }, [data]);
+
   const decodeSoundtrackLayer = useCallback(async (
     layer: NonNullable<CueTreatment["soundtrackLayer"]>,
   ) => {
@@ -388,13 +548,238 @@ export function PerformerConsole() {
     source.start(audioContext.currentTime);
 
     activeSoundtrackLayers.current.add(layer);
-    activeVoices.current.push({ sources: [source], nodes: [gain], gains: [gain] });
+    activeVoices.current.push({ kind: "soundtrack", sources: [source], nodes: [gain], gains: [gain] });
     return true;
   }, [decodeSoundtrackLayer, ensureAudio]);
+
+  const pruneVoiceGrains = useCallback((maxActive = MAX_ACTIVE_VOICE_GRAINS) => {
+    const voiceNodes = activeVoices.current.filter((voice) => voice.kind === "voice");
+    const overflow = voiceNodes.length - maxActive + 1;
+    if (overflow <= 0) return;
+
+    const audioContext = context.current;
+    const stopAt = (audioContext?.currentTime ?? 0) + 0.08;
+    voiceNodes.slice(0, overflow).forEach((voice) => {
+      if (audioContext) {
+        voice.gains.forEach((gain) => {
+          gain.gain.cancelScheduledValues(audioContext.currentTime);
+          gain.gain.setValueAtTime(gain.gain.value, audioContext.currentTime);
+          gain.gain.linearRampToValueAtTime(0.0001, stopAt);
+        });
+      }
+      voice.sources.forEach((source) => {
+        try {
+          audioContext ? source.stop(stopAt) : source.stop();
+        } catch {
+          // Sources may already be stopped.
+        }
+      });
+      window.setTimeout(() => {
+        voice.nodes.forEach((node) => {
+          try {
+            node.disconnect();
+          } catch {
+            // Nodes may already be disconnected by an earlier cue change.
+          }
+        });
+      }, 120);
+    });
+    activeVoices.current = activeVoices.current.filter((voice) => !voiceNodes.slice(0, overflow).includes(voice));
+  }, []);
+
+  const playPooledVoice = useCallback(async ({
+    profile,
+    maxDuration,
+    maxActive,
+    startDelay = 0,
+  }: {
+    profile: VoiceProfile;
+    maxDuration?: number;
+    maxActive?: number;
+    startDelay?: number;
+  }) => {
+    const voice = nextPooledVoice();
+    if (!voice) return 0;
+
+    const audioContext = await ensureAudio();
+    const buffer = await decodePooledVoice(voice);
+    const params = voiceProfileParams(profile);
+    const sliceDuration = Math.min(maxDuration ?? buffer.duration, buffer.duration);
+    const startOffset = maxDuration && buffer.duration > sliceDuration + 0.05
+      ? randomBetween(0, buffer.duration - sliceDuration)
+      : 0;
+
+    if (maxActive) pruneVoiceGrains(maxActive);
+
+    const source = audioContext.createBufferSource();
+    const gain = audioContext.createGain();
+    const filter = audioContext.createBiquadFilter();
+    const shaper = audioContext.createWaveShaper();
+    const delay = audioContext.createDelay(1);
+    const delayGain = audioContext.createGain();
+    const convolver = audioContext.createConvolver();
+    const wetGain = audioContext.createGain();
+    const dryGain = audioContext.createGain();
+    const now = audioContext.currentTime + startDelay;
+    const duration = Math.max(0.025, sliceDuration / params.playbackRate);
+    const voiceGain = params.gain * loudnessGain(buffer);
+    const attackEnd = now + Math.min(0.015, duration * 0.35);
+    const releaseStart = now + Math.max(
+      Math.min(0.02, duration * 0.5),
+      duration - Math.min(0.035, duration * 0.45),
+    );
+
+    source.buffer = buffer;
+    source.loop = false;
+    source.playbackRate.value = params.playbackRate;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(voiceGain, attackEnd);
+    gain.gain.setValueAtTime(voiceGain, releaseStart);
+    gain.gain.linearRampToValueAtTime(0.0001, now + duration);
+    filter.type = params.filterType;
+    filter.frequency.value = params.filterFrequency;
+    shaper.curve = distortionCurve(params.distortion);
+    shaper.oversample = "2x";
+    delay.delayTime.value = params.delay;
+    delayGain.gain.value = params.delay ? 0.18 : 0;
+    convolver.buffer = impulse(audioContext, profile === "distant" || profile === "underwater" ? 2.4 : 1.2);
+    wetGain.gain.value = params.reverb;
+    dryGain.gain.value = 1 - Math.min(params.reverb, 0.72);
+
+    source.connect(shaper);
+    shaper.connect(filter);
+    filter.connect(gain);
+    gain.connect(dryGain);
+    dryGain.connect(audioContext.destination);
+    gain.connect(delay);
+    delay.connect(delayGain);
+    delayGain.connect(delay);
+    delayGain.connect(audioContext.destination);
+    gain.connect(convolver);
+    convolver.connect(wetGain);
+    wetGain.connect(audioContext.destination);
+
+    source.start(now, startOffset, sliceDuration);
+    try {
+      source.stop(now + duration + 0.02);
+    } catch {
+      // Source may already be stopped by a cue change.
+    }
+
+    activeVoices.current.push({
+      kind: "voice",
+      sources: [source],
+      nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
+      gains: [gain, delayGain, wetGain, dryGain],
+    });
+
+    window.setTimeout(() => {
+      activeVoices.current = activeVoices.current.filter((active) => active.sources[0] !== source);
+      [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain].forEach((node) => {
+        try {
+          node.disconnect();
+        } catch {
+          // Nodes may already be disconnected by an earlier cue change.
+        }
+      });
+    }, (startDelay + duration + 0.2) * 1000);
+
+    return duration;
+  }, [decodePooledVoice, ensureAudio, nextPooledVoice, pruneVoiceGrains]);
+
+  const scheduleVoiceTimer = useCallback((callback: () => void, seconds: number) => {
+    const timer = window.setTimeout(callback, seconds * 1000);
+    voiceTimers.current.push(timer);
+    return timer;
+  }, []);
+
+  const startVoiceBehavior = useCallback((cue: PerformerCue) => {
+    const runId = voiceRunId.current;
+    const isCurrentRun = () => runId === voiceRunId.current;
+
+    if (cue.order_index === 1) {
+      const playNext = () => {
+        if (!isCurrentRun()) return;
+        void playPooledVoice({ profile: "distant", maxDuration: 2.8, maxActive: 8 });
+        scheduleVoiceTimer(playNext, CUE_ONE_REPEAT_SECONDS);
+      };
+      scheduleVoiceTimer(playNext, CUE_ONE_FIRST_ENTRY_SECONDS);
+      return true;
+    }
+
+    if (cue.order_index === 4) {
+      void playPooledVoice({ profile: "static", maxDuration: 3.5, maxActive: 8 });
+      return true;
+    }
+
+    if (cue.order_index === 6) return true;
+
+    if (cue.order_index === 5 || cue.order_index === 7) {
+      const startedAt = performance.now();
+      const playNext = () => {
+        if (!isCurrentRun()) return;
+        const elapsed = (performance.now() - startedAt) / 1000;
+        const interval = swarmInterval(elapsed);
+        const maxDuration = swarmSliceDuration(elapsed);
+        void playPooledVoice({
+          profile: "swarm",
+          maxDuration,
+          maxActive: MAX_ACTIVE_VOICE_GRAINS,
+        });
+        scheduleVoiceTimer(playNext, interval);
+      };
+      playNext();
+      return true;
+    }
+
+    if (cue.order_index === 8) {
+      const playNext = () => {
+        if (!isCurrentRun()) return;
+        void playPooledVoice({
+          profile: "mechanical",
+          maxDuration: randomBetween(0.08, 0.28),
+          maxActive: 24,
+        });
+        scheduleVoiceTimer(playNext, randomBetween(0.08, 0.34));
+      };
+      playNext();
+      return true;
+    }
+
+    if (cue.order_index === 9) {
+      const playNext = () => {
+        if (!isCurrentRun()) return;
+        void (async () => {
+          const duration = await playPooledVoice({
+            profile: "underwater",
+            maxDuration: randomBetween(2.4, 5.5),
+            maxActive: 12,
+          });
+          if (isCurrentRun()) scheduleVoiceTimer(playNext, Math.max(1.2, duration + randomBetween(0.25, 0.8)));
+        })();
+      };
+      playNext();
+      return true;
+    }
+
+    if (cue.order_index === FINAL_VOICE_CUE_INDEX) {
+      void (async () => {
+        const duration = await playPooledVoice({ profile: "plain", maxDuration: 8, maxActive: 4 });
+        if (!isCurrentRun() || duration <= 0) return;
+        scheduleVoiceTimer(() => {
+          if (isCurrentRun()) void fadeAndStopActiveVoices(FINAL_FADE_SECONDS);
+        }, duration);
+      })();
+      return true;
+    }
+
+    return false;
+  }, [fadeAndStopActiveVoices, playPooledVoice, scheduleVoiceTimer]);
 
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
+    stopVoiceBehavior();
     const overlapFadeSeconds = cue.treatment.soundtrackLayer
       ? OVERLAP_FADE_SECONDS_BY_LAYER[cue.treatment.soundtrackLayer]
       : undefined;
@@ -414,6 +799,8 @@ export function PerformerConsole() {
         );
       }
     }
+
+    if (startVoiceBehavior(cue)) return;
 
     const audioContext = await ensureAudio();
     const playableAssignments = cue.assignments.filter(
@@ -494,6 +881,7 @@ export function PerformerConsole() {
           );
         }
         activeVoices.current.push({
+          kind: "voice",
           sources: [source],
           nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
           gains: [gain, delayGain, wetGain, dryGain],
@@ -506,7 +894,15 @@ export function PerformerConsole() {
         void fadeAndStopActiveVoices(FINAL_FADE_SECONDS);
       }, latestVoiceEndSeconds * 1000);
     }
-  }, [data, decodeAssignment, ensureAudio, fadeAndStopActiveVoices, startSoundtrackLayer]);
+  }, [
+    data,
+    decodeAssignment,
+    ensureAudio,
+    fadeAndStopActiveVoices,
+    startSoundtrackLayer,
+    startVoiceBehavior,
+    stopVoiceBehavior,
+  ]);
 
   const advance = useCallback(async () => {
     if (!data?.cues.length) {
@@ -604,6 +1000,8 @@ export function PerformerConsole() {
               .join(" / ") ||
               (currentCue?.treatment.soundtrackLayer
                 ? "Soundtrack plays even without an assigned voice."
+                : cueHasLiveVoiceBehavior(currentCue)
+                  ? "Live voice pool behavior."
                 : "No voice assigned yet.")}
           </small>
         </div>
@@ -655,6 +1053,8 @@ export function PerformerConsole() {
                   ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices${cue.treatment.soundtrackLayer ? " + soundtrack" : ""}`
                   : cue.treatment.soundtrackLayer
                     ? "soundtrack cue"
+                    : cueHasLiveVoiceBehavior(cue)
+                      ? "live voice pool"
                     : "silent fallback"}
               </em>
               <ArrowRight size={16} />

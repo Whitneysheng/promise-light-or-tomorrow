@@ -80,3 +80,11 @@ export type PerformerCue = Cue & {
     }
   >;
 };
+
+export type PerformerVoice = {
+  id: string;
+  submission_id: string;
+  signedUrl: string;
+  fragmentText: string | null;
+  duration_seconds: number | null;
+};

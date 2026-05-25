@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ensureDefaultCues } from "@/lib/default-cues";
 import { activeSlug, assertAdmin, getSupabaseAdmin } from "@/lib/supabase-server";
-import type { Cue, CueAssignment, PerformerCue, Submission } from "@/lib/types";
+import type { Cue, CueAssignment, PerformerCue, PerformerVoice, Submission } from "@/lib/types";
 
 type JoinedSubmission = Submission & {
   fragments?: { text: string } | null;
@@ -53,7 +53,11 @@ export async function POST(request: NextRequest) {
 
     await ensureDefaultCues(supabase, performance.id);
 
-    const [{ data: cues, error: cuesError }, { data: assignments, error: assignmentsError }] =
+    const [
+      { data: cues, error: cuesError },
+      { data: assignments, error: assignmentsError },
+      { data: approvedSubmissions, error: submissionsError },
+    ] =
       await Promise.all([
         supabase
           .from("cues")
@@ -65,9 +69,15 @@ export async function POST(request: NextRequest) {
           .select("*, submissions(*, fragments(text))")
           .eq("performance_id", performance.id)
           .order("assignment_index", { ascending: true }),
+        supabase
+          .from("submissions")
+          .select("*, fragments(text)")
+          .eq("performance_id", performance.id)
+          .eq("moderation_status", "approved")
+          .order("created_at", { ascending: true }),
       ]);
 
-    if (cuesError || assignmentsError) {
+    if (cuesError || assignmentsError || submissionsError) {
       return NextResponse.json(
         { error: "Could not load performer cues." },
         { status: 500 },
@@ -134,7 +144,27 @@ export async function POST(request: NextRequest) {
       }),
     );
 
-    return NextResponse.json({ performance, cues: performerCues });
+    const voicePool: PerformerVoice[] = await Promise.all(
+      ((approvedSubmissions ?? []) as JoinedSubmission[]).map(async (submission) => {
+        const signed = await supabase.storage
+          .from("whispers")
+          .createSignedUrl(submission.storage_path, 60 * 60 * 4);
+
+        return {
+          id: submission.id,
+          submission_id: submission.id,
+          signedUrl: signed.data?.signedUrl ?? "",
+          fragmentText: submission.fragments?.text ?? null,
+          duration_seconds: submission.duration_seconds,
+        };
+      }),
+    );
+
+    return NextResponse.json({
+      performance,
+      cues: performerCues,
+      voicePool: voicePool.filter((voice) => voice.signedUrl),
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unauthorized." },
