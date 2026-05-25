@@ -61,6 +61,7 @@ const FINAL_FADE_SECONDS = 2;
 const MAX_ACTIVE_VOICE_GRAINS = 64;
 const CUE_ONE_REPEAT_SECONDS = 2;
 const CUE_ONE_FIRST_ENTRY_SECONDS = 2;
+const CUE_ONE_VOICE_FADE_SECONDS = 3.5;
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -326,18 +327,35 @@ function voiceProfileParams(profile: VoiceProfile, clarity = 0): VoiceProfilePar
   };
 }
 
+function swarmArchSeconds(elapsedSeconds: number) {
+  const cycleSeconds = 50;
+  const cyclePosition = elapsedSeconds % cycleSeconds;
+  return cyclePosition <= cycleSeconds / 2 ? cyclePosition : cycleSeconds - cyclePosition;
+}
+
 function swarmInterval(elapsedSeconds: number) {
-  if (elapsedSeconds < 5) return randomBetween(0.75, 1.25);
-  if (elapsedSeconds < 10) return 0.04;
-  if (elapsedSeconds < 15) return 0.03;
-  if (elapsedSeconds < 20) return 0.02;
+  const archSeconds = swarmArchSeconds(elapsedSeconds);
+  if (archSeconds < 5) return randomBetween(0.75, 1.25);
+  if (archSeconds < 10) return 0.04;
+  if (archSeconds < 15) return 0.03;
+  if (archSeconds < 20) return 0.02;
   return 0.01;
 }
 
 function swarmSliceDuration(elapsedSeconds: number) {
-  if (elapsedSeconds < 5) return randomBetween(1.0, 2.8);
-  if (elapsedSeconds < 10) return randomBetween(0.35, 0.75);
+  const archSeconds = swarmArchSeconds(elapsedSeconds);
+  if (archSeconds < 5) return randomBetween(1.0, 2.8);
+  if (archSeconds < 10) return randomBetween(0.35, 0.75);
   return randomBetween(0.08, 0.24);
+}
+
+function swarmMaxActive(elapsedSeconds: number) {
+  const archSeconds = swarmArchSeconds(elapsedSeconds);
+  if (archSeconds < 5) return 8;
+  if (archSeconds < 10) return 20;
+  if (archSeconds < 15) return 28;
+  if (archSeconds < 20) return 36;
+  return 44;
 }
 
 export function PerformerConsole() {
@@ -760,7 +778,7 @@ export function PerformerConsole() {
         void playPooledVoice({
           profile: "swarm",
           maxDuration,
-          maxActive: MAX_ACTIVE_VOICE_GRAINS,
+          maxActive: Math.min(MAX_ACTIVE_VOICE_GRAINS, swarmMaxActive(elapsed)),
         });
         scheduleVoiceTimer(playNext, interval);
       };
@@ -815,7 +833,11 @@ export function PerformerConsole() {
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
-    stopVoiceBehavior(1);
+    const previousCue = currentIndex >= 0 ? data.cues[currentIndex] : null;
+    const voiceFadeSeconds = previousCue?.order_index === 1 && cue.order_index === 2
+      ? CUE_ONE_VOICE_FADE_SECONDS
+      : SECTION_CUE_FADE_SECONDS;
+    stopVoiceBehavior(voiceFadeSeconds);
     const overlapFadeSeconds = cue.treatment.soundtrackLayer
       ? OVERLAP_FADE_SECONDS_BY_LAYER[cue.treatment.soundtrackLayer]
       : undefined;
@@ -931,6 +953,7 @@ export function PerformerConsole() {
       }, latestVoiceEndSeconds * 1000);
     }
   }, [
+    currentIndex,
     data,
     decodeAssignment,
     ensureAudio,
