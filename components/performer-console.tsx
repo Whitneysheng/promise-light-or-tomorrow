@@ -32,8 +32,14 @@ type ActiveVoice = {
 const TARGET_VOICE_RMS = 0.105;
 const MIN_VOICE_GAIN = 0.35;
 const MAX_VOICE_GAIN = 2.8;
-const CUE_FIVE_FADE_WAIT_SECONDS = 3;
-const SECTION_CUE_FADE_SECONDS = 9;
+const SECTION_CUE_FADE_SECONDS = 1;
+const SECTION_SOUNDTRACK_LAYERS = [
+  "oceanWaves",
+  "lowDoubleBass",
+  "oceanWavesCDbEbG",
+  "whimsicalIce",
+  "innerPressure",
+];
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -244,7 +250,7 @@ export function PerformerConsole() {
     activeSoundtrackLayers.current.clear();
   }, []);
 
-  const fadeAndStopActiveVoices = useCallback(async (seconds = 9) => {
+  const fadeAndStopActiveVoices = useCallback(async (seconds = SECTION_CUE_FADE_SECONDS) => {
     const audioContext = context.current;
     if (!audioContext) {
       stopAll();
@@ -379,12 +385,8 @@ export function PerformerConsole() {
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
-    if (cue.treatment.soundtrackLayer === "oceanWaves" && activeVoices.current.length) {
-      void fadeAndStopActiveVoices(9);
-      await wait(CUE_FIVE_FADE_WAIT_SECONDS);
-    }
     if (
-      ["lowDoubleBass", "oceanWavesCDbEbG", "whimsicalIce", "innerPressure"].includes(
+      SECTION_SOUNDTRACK_LAYERS.includes(
         cue.treatment.soundtrackLayer ?? "",
       ) && activeVoices.current.length
     ) {
