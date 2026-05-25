@@ -29,6 +29,8 @@ type ActiveVoice = {
   sources: AudioScheduledSourceNode[];
   nodes: AudioNode[];
   gains: GainNode[];
+  levelGain?: GainNode;
+  baseLevel?: number;
 };
 
 type VoiceProfile = "distant" | "static" | "swarm" | "mechanical" | "underwater" | "plain";
@@ -341,14 +343,6 @@ function swarmInterval(elapsedSeconds: number) {
   return 0.07;
 }
 
-function swarmSliceDuration(elapsedSeconds: number) {
-  const archSeconds = swarmArchSeconds(elapsedSeconds);
-  if (archSeconds < 4) return randomBetween(1.0, 2.8);
-  if (archSeconds < 8) return randomBetween(0.35, 0.75);
-  if (archSeconds < 12) return randomBetween(0.12, 0.28);
-  return randomBetween(0.16, 0.34);
-}
-
 function swarmMaxActive(elapsedSeconds: number) {
   const archSeconds = swarmArchSeconds(elapsedSeconds);
   if (archSeconds < 4) return 8;
@@ -631,12 +625,14 @@ export function PerformerConsole() {
     maxActive,
     startDelay = 0,
     clarity = 0,
+    attenuateExisting = false,
   }: {
     profile: VoiceProfile;
     maxDuration?: number;
     maxActive?: number;
     startDelay?: number;
     clarity?: number;
+    attenuateExisting?: boolean;
   }) => {
     const voice = nextPooledVoice();
     if (!voice) return 0;
@@ -649,7 +645,20 @@ export function PerformerConsole() {
       ? randomBetween(0, buffer.duration - sliceDuration)
       : 0;
 
-    if (maxActive) pruneVoiceGrains(maxActive);
+    if (attenuateExisting && maxActive) {
+      const voiceNodes = activeVoices.current.filter((active) => active.kind === "voice");
+      const pressure = Math.max(1, voiceNodes.length + 1);
+      const targetScale = Math.min(0.82, Math.max(0.16, Math.sqrt(maxActive / pressure) * 0.34));
+      voiceNodes.forEach((active, index) => {
+        if (!active.levelGain || !active.baseLevel) return;
+        const ageScale = Math.max(0.18, Math.pow(0.88, voiceNodes.length - index));
+        const targetGain = active.baseLevel * targetScale * ageScale;
+        active.levelGain.gain.cancelScheduledValues(audioContext.currentTime);
+        active.levelGain.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.35);
+      });
+    } else if (maxActive) {
+      pruneVoiceGrains(maxActive);
+    }
 
     const source = audioContext.createBufferSource();
     const gain = audioContext.createGain();
@@ -716,7 +725,9 @@ export function PerformerConsole() {
       kind: "voice",
       sources: [source],
       nodes: [gain, filter, delay, delayGain, convolver, wetGain, dryGain, ...(shaper ? [shaper] : [])],
-      gains: [gain, delayGain, wetGain, dryGain],
+      gains: [gain],
+      levelGain: gain,
+      baseLevel: voiceGain,
     });
 
     window.setTimeout(() => {
@@ -773,11 +784,10 @@ export function PerformerConsole() {
         if (!isCurrentRun()) return;
         const elapsed = (performance.now() - startedAt) / 1000;
         const interval = swarmInterval(elapsed);
-        const maxDuration = swarmSliceDuration(elapsed);
         void playPooledVoice({
           profile: "swarm",
-          maxDuration,
           maxActive: Math.min(MAX_ACTIVE_VOICE_GRAINS, swarmMaxActive(elapsed)),
+          attenuateExisting: true,
         });
         scheduleVoiceTimer(playNext, interval);
       };
