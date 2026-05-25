@@ -336,9 +336,9 @@ function swarmArchSeconds(elapsedSeconds: number) {
 function swarmInterval(elapsedSeconds: number) {
   const archSeconds = swarmArchSeconds(elapsedSeconds);
   if (archSeconds < 5) return randomBetween(0.75, 1.25);
-  if (archSeconds < 10) return 0.04;
-  if (archSeconds < 15) return 0.03;
-  return 0.025;
+  if (archSeconds < 10) return 0.12;
+  if (archSeconds < 15) return 0.085;
+  return 0.07;
 }
 
 function swarmSliceDuration(elapsedSeconds: number) {
@@ -352,9 +352,9 @@ function swarmSliceDuration(elapsedSeconds: number) {
 function swarmMaxActive(elapsedSeconds: number) {
   const archSeconds = swarmArchSeconds(elapsedSeconds);
   if (archSeconds < 5) return 8;
-  if (archSeconds < 10) return 20;
-  if (archSeconds < 15) return 28;
-  return 32;
+  if (archSeconds < 10) return 12;
+  if (archSeconds < 15) return 16;
+  return 20;
 }
 
 export function PerformerConsole() {
