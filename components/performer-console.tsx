@@ -33,6 +33,8 @@ const TARGET_VOICE_RMS = 0.105;
 const MIN_VOICE_GAIN = 0.35;
 const MAX_VOICE_GAIN = 2.8;
 const SECTION_CUE_FADE_SECONDS = 1;
+const VOICE_SILENCE_THRESHOLD = 0.00008;
+const SOUNDTRACK_SILENCE_THRESHOLD = 0.003;
 const SECTION_SOUNDTRACK_LAYERS = [
   "oceanWaves",
   "lowDoubleBass",
@@ -181,9 +183,8 @@ function loudnessGain(buffer: AudioBuffer) {
   return clamp(TARGET_VOICE_RMS / rms, MIN_VOICE_GAIN, MAX_VOICE_GAIN);
 }
 
-function leadingSoundOffset(buffer: AudioBuffer) {
+function leadingSoundOffset(buffer: AudioBuffer, silenceThreshold = VOICE_SILENCE_THRESHOLD) {
   const windowSize = Math.max(128, Math.floor(buffer.sampleRate * 0.025));
-  const silenceThreshold = 0.00008;
   const prerollFrames = Math.floor(buffer.sampleRate * 0.02);
 
   for (let start = 0; start < buffer.length; start += windowSize) {
@@ -205,8 +206,14 @@ function leadingSoundOffset(buffer: AudioBuffer) {
   return 0;
 }
 
-function trimLeadingSilence(context: AudioContext, buffer: AudioBuffer) {
-  const offsetFrames = Math.floor(leadingSoundOffset(buffer) * buffer.sampleRate);
+function trimLeadingSilence(
+  context: AudioContext,
+  buffer: AudioBuffer,
+  silenceThreshold = VOICE_SILENCE_THRESHOLD,
+) {
+  const offsetFrames = Math.floor(
+    leadingSoundOffset(buffer, silenceThreshold) * buffer.sampleRate,
+  );
   if (offsetFrames <= 0) return buffer;
 
   const length = Math.max(1, buffer.length - offsetFrames);
@@ -331,7 +338,7 @@ export function PerformerConsole() {
     const response = await fetch(signedUrl);
     const arrayBuffer = await response.arrayBuffer();
     const buffer = await audioContext.decodeAudioData(arrayBuffer);
-    const trimmed = trimLeadingSilence(audioContext, buffer);
+    const trimmed = trimLeadingSilence(audioContext, buffer, VOICE_SILENCE_THRESHOLD);
     const treated = cue.treatment.reverse
       ? reverseBuffer(audioContext, trimmed)
       : trimmed;
@@ -356,7 +363,7 @@ export function PerformerConsole() {
 
     const arrayBuffer = await response.arrayBuffer();
     const buffer = await audioContext.decodeAudioData(arrayBuffer);
-    const trimmed = trimLeadingSilence(audioContext, buffer);
+    const trimmed = trimLeadingSilence(audioContext, buffer, SOUNDTRACK_SILENCE_THRESHOLD);
     decoded.current.set(key, trimmed);
     return trimmed;
   }, [ensureAudio]);
@@ -391,7 +398,7 @@ export function PerformerConsole() {
         cue.order_index === FINAL_VOICE_CUE_INDEX) &&
       activeVoices.current.length
     ) {
-      await fadeAndStopActiveVoices(SECTION_CUE_FADE_SECONDS);
+      void fadeAndStopActiveVoices(SECTION_CUE_FADE_SECONDS);
     }
 
     if (cue.treatment.soundtrackLayer) {
