@@ -64,7 +64,7 @@ const soundtrackGains = {
   bflatBnatural: 0.72,
   windChimes: 0.78,
   oceanWaves: 0.7,
-  lowDoubleBass: 0.72,
+  lowDoubleBass: 0.58,
   oceanWavesCDbEbG: 0.7,
   whimsicalIce: 0.78,
   innerPressure: 0.72,
