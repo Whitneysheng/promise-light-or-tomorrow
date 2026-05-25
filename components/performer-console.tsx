@@ -43,6 +43,8 @@ const OVERLAP_FADE_SECONDS_BY_LAYER: Partial<
 };
 const VOICE_SILENCE_THRESHOLD = 0.00008;
 const SOUNDTRACK_SILENCE_THRESHOLD = 0.003;
+const FINAL_VOICE_CUE_INDEX = 10;
+const FINAL_FADE_SECONDS = 2;
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -420,6 +422,7 @@ export function PerformerConsole() {
     if (!playableAssignments.length) return;
 
     const treatment: CueTreatment = cue.treatment ?? {};
+    let latestVoiceEndSeconds = 0;
 
     await Promise.all(
       playableAssignments.map(async (assignment) => {
@@ -483,6 +486,13 @@ export function PerformerConsole() {
           audioContext.currentTime + assignment.start_offset_seconds,
           source.loop ? playbackOffset : 0,
         );
+        if (!source.loop) {
+          const playbackRate = treatment.playbackRate ?? 1;
+          latestVoiceEndSeconds = Math.max(
+            latestVoiceEndSeconds,
+            assignment.start_offset_seconds + (buffer.duration - playbackOffset) / playbackRate,
+          );
+        }
         activeVoices.current.push({
           sources: [source],
           nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
@@ -490,6 +500,12 @@ export function PerformerConsole() {
         });
       }),
     );
+
+    if (cue.order_index === FINAL_VOICE_CUE_INDEX && latestVoiceEndSeconds > 0) {
+      window.setTimeout(() => {
+        void fadeAndStopActiveVoices(FINAL_FADE_SECONDS);
+      }, latestVoiceEndSeconds * 1000);
+    }
   }, [data, decodeAssignment, ensureAudio, fadeAndStopActiveVoices, startSoundtrackLayer]);
 
   const advance = useCallback(async () => {
