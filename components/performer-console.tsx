@@ -32,6 +32,15 @@ type ActiveVoice = {
 };
 
 type VoiceProfile = "distant" | "static" | "swarm" | "mechanical" | "underwater" | "plain";
+type VoiceProfileParams = {
+  gain: number;
+  filterType: BiquadFilterType;
+  filterFrequency: number;
+  distortion: number;
+  reverb: number;
+  delay: number;
+  playbackRate: number;
+};
 
 const TARGET_VOICE_RMS = 0.105;
 const MIN_VOICE_GAIN = 0.35;
@@ -248,15 +257,17 @@ function randomBetween(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
 
-function voiceProfileParams(profile: VoiceProfile) {
+function voiceProfileParams(profile: VoiceProfile, clarity = 0): VoiceProfileParams {
+  const clearAmount = Math.max(0, Math.min(1, clarity));
+
   if (profile === "distant") {
     return {
-      gain: 0.3,
+      gain: 0.28 + clearAmount * 0.24,
       filterType: "lowpass" as BiquadFilterType,
-      filterFrequency: randomBetween(1200, 2200),
+      filterFrequency: randomBetween(1200 + clearAmount * 1800, 2200 + clearAmount * 2600),
       distortion: 0.01,
-      reverb: 0.72,
-      delay: randomBetween(0.08, 0.14),
+      reverb: 0.72 - clearAmount * 0.48,
+      delay: randomBetween(0.08, 0.14) * (1 - clearAmount * 0.75),
       playbackRate: randomBetween(0.94, 1.03),
     };
   }
@@ -273,7 +284,7 @@ function voiceProfileParams(profile: VoiceProfile) {
   }
   if (profile === "mechanical") {
     return {
-      gain: 0.46,
+      gain: 0.32,
       filterType: "bandpass" as BiquadFilterType,
       filterFrequency: randomBetween(900, 3600),
       distortion: randomBetween(0.18, 0.34),
@@ -295,13 +306,13 @@ function voiceProfileParams(profile: VoiceProfile) {
   }
   if (profile === "swarm") {
     return {
-      gain: 0.22,
-      filterType: "bandpass" as BiquadFilterType,
-      filterFrequency: randomBetween(650, 4200),
-      distortion: randomBetween(0.03, 0.12),
-      reverb: 0.22,
+      gain: 0.2,
+      filterType: "lowpass" as BiquadFilterType,
+      filterFrequency: randomBetween(2800, 5600),
+      distortion: 0,
+      reverb: 0.08,
       delay: 0,
-      playbackRate: randomBetween(0.72, 1.42),
+      playbackRate: randomBetween(0.92, 1.08),
     };
   }
   return {
@@ -324,9 +335,9 @@ function swarmInterval(elapsedSeconds: number) {
 }
 
 function swarmSliceDuration(elapsedSeconds: number) {
-  if (elapsedSeconds < 5) return randomBetween(0.8, 2.5);
-  if (elapsedSeconds < 10) return randomBetween(0.2, 0.5);
-  return randomBetween(0.04, 0.18);
+  if (elapsedSeconds < 5) return randomBetween(1.0, 2.8);
+  if (elapsedSeconds < 10) return randomBetween(0.35, 0.75);
+  return randomBetween(0.08, 0.24);
 }
 
 export function PerformerConsole() {
@@ -415,16 +426,26 @@ export function PerformerConsole() {
 
     await wait(seconds);
     voicesToFade.forEach((voice) => {
-      voice.nodes.forEach((node) => node.disconnect());
+      voice.nodes.forEach((node) => {
+        try {
+          node.disconnect();
+        } catch {
+          // Nodes may already be disconnected by an earlier cue change.
+        }
+      });
     });
   }, [stopAll]);
 
-  const stopVoiceBehavior = useCallback(() => {
+  const stopVoiceBehavior = useCallback((fadeSeconds = 0) => {
     clearVoiceTimers();
     voiceRunId.current += 1;
+    if (fadeSeconds > 0) {
+      void fadeAndStopActiveVoices(fadeSeconds, "voice");
+      return;
+    }
     stopActiveVoices(activeVoices.current.filter((voice) => voice.kind === "voice"));
     activeVoices.current = activeVoices.current.filter((voice) => voice.kind !== "voice");
-  }, [clearVoiceTimers, stopActiveVoices]);
+  }, [clearVoiceTimers, fadeAndStopActiveVoices, stopActiveVoices]);
 
   const ensureAudio = useCallback(async () => {
     if (!context.current) {
@@ -592,18 +613,20 @@ export function PerformerConsole() {
     maxDuration,
     maxActive,
     startDelay = 0,
+    clarity = 0,
   }: {
     profile: VoiceProfile;
     maxDuration?: number;
     maxActive?: number;
     startDelay?: number;
+    clarity?: number;
   }) => {
     const voice = nextPooledVoice();
     if (!voice) return 0;
 
     const audioContext = await ensureAudio();
     const buffer = await decodePooledVoice(voice);
-    const params = voiceProfileParams(profile);
+    const params = voiceProfileParams(profile, clarity);
     const sliceDuration = Math.min(maxDuration ?? buffer.duration, buffer.duration);
     const startOffset = maxDuration && buffer.duration > sliceDuration + 0.05
       ? randomBetween(0, buffer.duration - sliceDuration)
@@ -614,7 +637,7 @@ export function PerformerConsole() {
     const source = audioContext.createBufferSource();
     const gain = audioContext.createGain();
     const filter = audioContext.createBiquadFilter();
-    const shaper = audioContext.createWaveShaper();
+    const shaper = params.distortion > 0.005 ? audioContext.createWaveShaper() : null;
     const delay = audioContext.createDelay(1);
     const delayGain = audioContext.createGain();
     const convolver = audioContext.createConvolver();
@@ -638,16 +661,22 @@ export function PerformerConsole() {
     gain.gain.linearRampToValueAtTime(0.0001, now + duration);
     filter.type = params.filterType;
     filter.frequency.value = params.filterFrequency;
-    shaper.curve = distortionCurve(params.distortion);
-    shaper.oversample = "2x";
+    if (shaper) {
+      shaper.curve = distortionCurve(params.distortion);
+      shaper.oversample = "2x";
+    }
     delay.delayTime.value = params.delay;
     delayGain.gain.value = params.delay ? 0.18 : 0;
     convolver.buffer = impulse(audioContext, profile === "distant" || profile === "underwater" ? 2.4 : 1.2);
     wetGain.gain.value = params.reverb;
     dryGain.gain.value = 1 - Math.min(params.reverb, 0.72);
 
-    source.connect(shaper);
-    shaper.connect(filter);
+    if (shaper) {
+      source.connect(shaper);
+      shaper.connect(filter);
+    } else {
+      source.connect(filter);
+    }
     filter.connect(gain);
     gain.connect(dryGain);
     dryGain.connect(audioContext.destination);
@@ -669,13 +698,13 @@ export function PerformerConsole() {
     activeVoices.current.push({
       kind: "voice",
       sources: [source],
-      nodes: [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain],
+      nodes: [gain, filter, delay, delayGain, convolver, wetGain, dryGain, ...(shaper ? [shaper] : [])],
       gains: [gain, delayGain, wetGain, dryGain],
     });
 
     window.setTimeout(() => {
       activeVoices.current = activeVoices.current.filter((active) => active.sources[0] !== source);
-      [gain, filter, shaper, delay, delayGain, convolver, wetGain, dryGain].forEach((node) => {
+      [gain, filter, delay, delayGain, convolver, wetGain, dryGain, ...(shaper ? [shaper] : [])].forEach((node) => {
         try {
           node.disconnect();
         } catch {
@@ -698,9 +727,16 @@ export function PerformerConsole() {
     const isCurrentRun = () => runId === voiceRunId.current;
 
     if (cue.order_index === 1) {
+      const startedAt = performance.now();
       const playNext = () => {
         if (!isCurrentRun()) return;
-        void playPooledVoice({ profile: "distant", maxDuration: 2.8, maxActive: 8 });
+        const elapsed = (performance.now() - startedAt) / 1000;
+        void playPooledVoice({
+          profile: "distant",
+          maxDuration: 2.8,
+          maxActive: 8,
+          clarity: Math.min(0.9, elapsed / 30),
+        });
         scheduleVoiceTimer(playNext, CUE_ONE_REPEAT_SECONDS);
       };
       scheduleVoiceTimer(playNext, CUE_ONE_FIRST_ENTRY_SECONDS);
@@ -779,7 +815,7 @@ export function PerformerConsole() {
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
-    stopVoiceBehavior();
+    stopVoiceBehavior(1);
     const overlapFadeSeconds = cue.treatment.soundtrackLayer
       ? OVERLAP_FADE_SECONDS_BY_LAYER[cue.treatment.soundtrackLayer]
       : undefined;
