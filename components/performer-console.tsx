@@ -940,6 +940,12 @@ export function PerformerConsole() {
 
   const currentCue = currentIndex >= 0 ? data?.cues[currentIndex] : null;
   const nextCue = data?.cues[currentIndex + 1] ?? null;
+  const liveVoiceCount = data?.voicePool?.length ?? 0;
+  const liveVoiceStatus = data
+    ? liveVoiceCount
+      ? `${liveVoiceCount} approved recording${liveVoiceCount === 1 ? "" : "s"} loaded`
+      : "No approved recordings loaded"
+    : "Load cues to check recordings";
 
   return (
     <main className="console-shell performer">
@@ -983,6 +989,10 @@ export function PerformerConsole() {
           {audioReady ? "Audio ready" : "Press Unlock Audio or pedal once"}
         </div>
         <div>
+          <span className={liveVoiceCount ? "status-dot ready" : "status-dot"} />
+          {liveVoiceStatus}
+        </div>
+        <div>
           Foot pedal keys: <strong>Space</strong>, <strong>Enter</strong>, or{" "}
           <strong>ArrowRight</strong>
         </div>
@@ -998,10 +1008,10 @@ export function PerformerConsole() {
               .map((assignment) => assignment.fragmentText)
               .filter(Boolean)
               .join(" / ") ||
-              (currentCue?.treatment.soundtrackLayer
-                ? "Soundtrack plays even without an assigned voice."
-                : cueHasLiveVoiceBehavior(currentCue)
-                  ? "Live voice pool behavior."
+              (cueHasLiveVoiceBehavior(currentCue)
+                ? `${currentCue?.treatment.soundtrackLayer ? "Soundtrack + " : ""}Live voice pool: ${liveVoiceStatus}.`
+                : currentCue?.treatment.soundtrackLayer
+                  ? "Soundtrack plays even without an assigned voice."
                 : "No voice assigned yet.")}
           </small>
         </div>
@@ -1051,10 +1061,10 @@ export function PerformerConsole() {
               <em>
                 {cue.assignments.length
                   ? `${cue.treatment.texture ?? "solo"} / ${cue.assignments.filter((assignment) => assignment.signedUrl).length} voices${cue.treatment.soundtrackLayer ? " + soundtrack" : ""}`
-                  : cue.treatment.soundtrackLayer
-                    ? "soundtrack cue"
-                    : cueHasLiveVoiceBehavior(cue)
-                      ? "live voice pool"
+                  : cueHasLiveVoiceBehavior(cue)
+                    ? `${cue.treatment.soundtrackLayer ? "soundtrack + " : ""}live voice pool / ${liveVoiceCount} loaded`
+                    : cue.treatment.soundtrackLayer
+                      ? "soundtrack cue"
                     : "silent fallback"}
               </em>
               <ArrowRight size={16} />
