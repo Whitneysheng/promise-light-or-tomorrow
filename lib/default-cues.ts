@@ -146,6 +146,17 @@ export const defaultCues: DefaultCue[] = [
       reverb: 0,
     },
   },
+  {
+    label: "bar 60",
+    order_index: 9,
+    treatment: {
+      name: "foreshadowing inner pressure",
+      texture: "soundtrack",
+      voiceCount: 0,
+      gain: 0,
+      reverb: 0,
+    },
+  },
 ];
 
 export async function ensureDefaultCues(
