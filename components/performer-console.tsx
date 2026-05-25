@@ -328,32 +328,32 @@ function voiceProfileParams(profile: VoiceProfile, clarity = 0): VoiceProfilePar
 }
 
 function swarmArchSeconds(elapsedSeconds: number) {
-  const cycleSeconds = 50;
+  const cycleSeconds = 36;
   const cyclePosition = elapsedSeconds % cycleSeconds;
   return cyclePosition <= cycleSeconds / 2 ? cyclePosition : cycleSeconds - cyclePosition;
 }
 
 function swarmInterval(elapsedSeconds: number) {
   const archSeconds = swarmArchSeconds(elapsedSeconds);
-  if (archSeconds < 5) return randomBetween(0.75, 1.25);
-  if (archSeconds < 10) return 0.12;
-  if (archSeconds < 15) return 0.085;
+  if (archSeconds < 4) return randomBetween(0.75, 1.25);
+  if (archSeconds < 8) return 0.12;
+  if (archSeconds < 12) return 0.085;
   return 0.07;
 }
 
 function swarmSliceDuration(elapsedSeconds: number) {
   const archSeconds = swarmArchSeconds(elapsedSeconds);
-  if (archSeconds < 5) return randomBetween(1.0, 2.8);
-  if (archSeconds < 10) return randomBetween(0.35, 0.75);
-  if (archSeconds < 15) return randomBetween(0.12, 0.28);
+  if (archSeconds < 4) return randomBetween(1.0, 2.8);
+  if (archSeconds < 8) return randomBetween(0.35, 0.75);
+  if (archSeconds < 12) return randomBetween(0.12, 0.28);
   return randomBetween(0.16, 0.34);
 }
 
 function swarmMaxActive(elapsedSeconds: number) {
   const archSeconds = swarmArchSeconds(elapsedSeconds);
-  if (archSeconds < 5) return 8;
-  if (archSeconds < 10) return 12;
-  if (archSeconds < 15) return 16;
+  if (archSeconds < 4) return 8;
+  if (archSeconds < 8) return 12;
+  if (archSeconds < 12) return 16;
   return 20;
 }
 
