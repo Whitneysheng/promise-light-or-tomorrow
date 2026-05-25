@@ -40,6 +40,7 @@ const SECTION_SOUNDTRACK_LAYERS = [
   "whimsicalIce",
   "innerPressure",
 ];
+const FINAL_VOICE_CUE_INDEX = 10;
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -386,9 +387,9 @@ export function PerformerConsole() {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
     if (
-      SECTION_SOUNDTRACK_LAYERS.includes(
-        cue.treatment.soundtrackLayer ?? "",
-      ) && activeVoices.current.length
+      (SECTION_SOUNDTRACK_LAYERS.includes(cue.treatment.soundtrackLayer ?? "") ||
+        cue.order_index === FINAL_VOICE_CUE_INDEX) &&
+      activeVoices.current.length
     ) {
       await fadeAndStopActiveVoices(SECTION_CUE_FADE_SECONDS);
     }

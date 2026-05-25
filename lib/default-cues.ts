@@ -157,6 +157,23 @@ export const defaultCues: DefaultCue[] = [
       reverb: 0,
     },
   },
+  {
+    label: "bar 68",
+    order_index: 10,
+    treatment: {
+      name: "last voice alone",
+      texture: "solo",
+      voiceCount: 1,
+      gain: 0.82,
+      loopStart: 0,
+      loopEnd: 3,
+      filterType: "lowpass",
+      filterFrequency: 3200,
+      distortion: 0.02,
+      reverb: 0.08,
+      playbackRate: 1,
+    },
+  },
 ];
 
 export async function ensureDefaultCues(
