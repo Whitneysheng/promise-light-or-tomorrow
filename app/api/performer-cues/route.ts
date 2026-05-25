@@ -16,6 +16,7 @@ const availableSoundtrackLayers = new Set([
   "lowDoubleBass",
   "oceanWavesCDbEbG",
   "whimsicalIce",
+  "innerPressure",
 ]);
 
 function soundtrackLayerForCue(cue: Cue) {
@@ -27,6 +28,7 @@ function soundtrackLayerForCue(cue: Cue) {
   if (cue.order_index === 6) return "lowDoubleBass";
   if (cue.order_index === 7) return "oceanWavesCDbEbG";
   if (cue.order_index === 8) return "whimsicalIce";
+  if (cue.order_index === 9) return "innerPressure";
   return undefined;
 }
 

@@ -44,6 +44,7 @@ const soundtrackAssets = {
   lowDoubleBass: "/soundtrack/06_low_double_bass_vibration_stem.wav",
   oceanWavesCDbEbG: "/soundtrack/07_gentle_ocean_waves_c_db_eb_g_stem.wav",
   whimsicalIce: "/soundtrack/08_whimsical_ice_percussion_stem.wav",
+  innerPressure: "/soundtrack/09_foreshadowing_inner_pressure_stem.wav",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 const soundtrackGains = {
@@ -55,6 +56,7 @@ const soundtrackGains = {
   lowDoubleBass: 0.72,
   oceanWavesCDbEbG: 0.7,
   whimsicalIce: 0.78,
+  innerPressure: 0.72,
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>;
 
 const soundtrackNames = {
@@ -66,6 +68,7 @@ const soundtrackNames = {
   lowDoubleBass: "Low double bass sul ponticello",
   oceanWavesCDbEbG: "Ocean waves C / D-flat / E-flat / G",
   whimsicalIce: "Whimsical ice percussion",
+  innerPressure: "Foreshadowing inner pressure",
 } satisfies Record<NonNullable<CueTreatment["soundtrackLayer"]>, string>;
 
 function cueNumberLabel(index: number | null | undefined) {
@@ -381,7 +384,7 @@ export function PerformerConsole() {
       await wait(CUE_FIVE_FADE_WAIT_SECONDS);
     }
     if (
-      ["lowDoubleBass", "oceanWavesCDbEbG", "whimsicalIce"].includes(
+      ["lowDoubleBass", "oceanWavesCDbEbG", "whimsicalIce", "innerPressure"].includes(
         cue.treatment.soundtrackLayer ?? "",
       ) && activeVoices.current.length
     ) {
