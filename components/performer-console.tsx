@@ -33,16 +33,16 @@ const TARGET_VOICE_RMS = 0.105;
 const MIN_VOICE_GAIN = 0.35;
 const MAX_VOICE_GAIN = 2.8;
 const SECTION_CUE_FADE_SECONDS = 1;
+const OVERLAP_FADE_SECONDS_BY_LAYER: Partial<
+  Record<NonNullable<CueTreatment["soundtrackLayer"]>, number>
+> = {
+  oceanWaves: 2,
+  lowDoubleBass: 3,
+  oceanWavesCDbEbG: 3,
+  innerPressure: 3,
+};
 const VOICE_SILENCE_THRESHOLD = 0.00008;
 const SOUNDTRACK_SILENCE_THRESHOLD = 0.003;
-const SECTION_SOUNDTRACK_LAYERS = [
-  "oceanWaves",
-  "lowDoubleBass",
-  "oceanWavesCDbEbG",
-  "whimsicalIce",
-  "innerPressure",
-];
-const FINAL_VOICE_CUE_INDEX = 10;
 
 const soundtrackAssets = {
   windEflat: "/soundtrack/01_wind_eflat_stem.wav",
@@ -393,12 +393,12 @@ export function PerformerConsole() {
   const playCue = useCallback(async (index: number) => {
     if (!data?.cues[index]) return;
     const cue = data.cues[index];
-    if (
-      (SECTION_SOUNDTRACK_LAYERS.includes(cue.treatment.soundtrackLayer ?? "") ||
-        cue.order_index === FINAL_VOICE_CUE_INDEX) &&
-      activeVoices.current.length
-    ) {
-      void fadeAndStopActiveVoices(SECTION_CUE_FADE_SECONDS);
+    const overlapFadeSeconds = cue.treatment.soundtrackLayer
+      ? OVERLAP_FADE_SECONDS_BY_LAYER[cue.treatment.soundtrackLayer]
+      : undefined;
+
+    if (overlapFadeSeconds && activeVoices.current.length) {
+      void fadeAndStopActiveVoices(overlapFadeSeconds);
     }
 
     if (cue.treatment.soundtrackLayer) {
