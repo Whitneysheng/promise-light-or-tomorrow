@@ -330,16 +330,14 @@ function voiceProfileParams(profile: VoiceProfile, clarity = 0): VoiceProfilePar
 }
 
 function swarmDensity(elapsedSeconds: number) {
-  const cycleSeconds = 28;
+  const cycleSeconds = 8;
   const cyclePosition = elapsedSeconds % cycleSeconds;
 
-  if (cyclePosition < 4) return { interval: randomBetween(0.9, 1.25), maxActive: 6, levelScale: 0.9 };
-  if (cyclePosition < 8) return { interval: 0.55, maxActive: 9, levelScale: 0.72 };
-  if (cyclePosition < 12) return { interval: 0.3, maxActive: 12, levelScale: 0.56 };
-  if (cyclePosition < 14) return { interval: 0.18, maxActive: 14, levelScale: 0.42 };
-  if (cyclePosition < 18) return { interval: 0.3, maxActive: 10, levelScale: 0.3 };
-  if (cyclePosition < 22) return { interval: 0.55, maxActive: 7, levelScale: 0.22 };
-  return { interval: randomBetween(0.9, 1.25), maxActive: 5, levelScale: 0.16 };
+  if (cyclePosition < 1.5) return { interval: randomBetween(0.85, 1.15), maxActive: 5, levelScale: 0.82 };
+  if (cyclePosition < 3) return { interval: 0.45, maxActive: 7, levelScale: 0.62 };
+  if (cyclePosition < 4) return { interval: 0.25, maxActive: 9, levelScale: 0.42 };
+  if (cyclePosition < 5.5) return { interval: 0.45, maxActive: 6, levelScale: 0.26 };
+  return { interval: randomBetween(0.85, 1.15), maxActive: 4, levelScale: 0.14 };
 }
 
 export function PerformerConsole() {
