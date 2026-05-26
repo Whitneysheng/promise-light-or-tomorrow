@@ -329,26 +329,17 @@ function voiceProfileParams(profile: VoiceProfile, clarity = 0): VoiceProfilePar
   };
 }
 
-function swarmArchSeconds(elapsedSeconds: number) {
-  const cycleSeconds = 36;
+function swarmDensity(elapsedSeconds: number) {
+  const cycleSeconds = 28;
   const cyclePosition = elapsedSeconds % cycleSeconds;
-  return cyclePosition <= cycleSeconds / 2 ? cyclePosition : cycleSeconds - cyclePosition;
-}
 
-function swarmInterval(elapsedSeconds: number) {
-  const archSeconds = swarmArchSeconds(elapsedSeconds);
-  if (archSeconds < 4) return randomBetween(0.75, 1.25);
-  if (archSeconds < 8) return 0.12;
-  if (archSeconds < 12) return 0.085;
-  return 0.07;
-}
-
-function swarmMaxActive(elapsedSeconds: number) {
-  const archSeconds = swarmArchSeconds(elapsedSeconds);
-  if (archSeconds < 4) return 8;
-  if (archSeconds < 8) return 12;
-  if (archSeconds < 12) return 16;
-  return 20;
+  if (cyclePosition < 4) return { interval: randomBetween(0.9, 1.25), maxActive: 6, levelScale: 0.9 };
+  if (cyclePosition < 8) return { interval: 0.55, maxActive: 9, levelScale: 0.72 };
+  if (cyclePosition < 12) return { interval: 0.3, maxActive: 12, levelScale: 0.56 };
+  if (cyclePosition < 14) return { interval: 0.18, maxActive: 14, levelScale: 0.42 };
+  if (cyclePosition < 18) return { interval: 0.3, maxActive: 10, levelScale: 0.3 };
+  if (cyclePosition < 22) return { interval: 0.55, maxActive: 7, levelScale: 0.22 };
+  return { interval: randomBetween(0.9, 1.25), maxActive: 5, levelScale: 0.16 };
 }
 
 export function PerformerConsole() {
@@ -626,6 +617,7 @@ export function PerformerConsole() {
     startDelay = 0,
     clarity = 0,
     attenuateExisting = false,
+    levelScale = 1,
   }: {
     profile: VoiceProfile;
     maxDuration?: number;
@@ -633,6 +625,7 @@ export function PerformerConsole() {
     startDelay?: number;
     clarity?: number;
     attenuateExisting?: boolean;
+    levelScale?: number;
   }) => {
     const voice = nextPooledVoice();
     if (!voice) return 0;
@@ -648,13 +641,13 @@ export function PerformerConsole() {
     if (attenuateExisting && maxActive) {
       const voiceNodes = activeVoices.current.filter((active) => active.kind === "voice");
       const pressure = Math.max(1, voiceNodes.length + 1);
-      const targetScale = Math.min(0.82, Math.max(0.16, Math.sqrt(maxActive / pressure) * 0.34));
+      const targetScale = Math.min(0.82, Math.max(0.08, Math.sqrt(maxActive / pressure) * levelScale));
       voiceNodes.forEach((active, index) => {
         if (!active.levelGain || !active.baseLevel) return;
-        const ageScale = Math.max(0.18, Math.pow(0.88, voiceNodes.length - index));
+        const ageScale = Math.max(0.12, Math.pow(0.86, voiceNodes.length - index));
         const targetGain = active.baseLevel * targetScale * ageScale;
         active.levelGain.gain.cancelScheduledValues(audioContext.currentTime);
-        active.levelGain.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.35);
+        active.levelGain.gain.setTargetAtTime(targetGain, audioContext.currentTime, 0.45);
       });
     } else if (maxActive) {
       pruneVoiceGrains(maxActive);
@@ -671,7 +664,8 @@ export function PerformerConsole() {
     const dryGain = audioContext.createGain();
     const now = audioContext.currentTime + startDelay;
     const duration = Math.max(0.025, sliceDuration / params.playbackRate);
-    const voiceGain = params.gain * loudnessGain(buffer);
+    const rawVoiceGain = params.gain * loudnessGain(buffer);
+    const voiceGain = rawVoiceGain * levelScale;
     const attackEnd = now + Math.min(0.015, duration * 0.35);
     const releaseStart = now + Math.max(
       Math.min(0.02, duration * 0.5),
@@ -727,7 +721,7 @@ export function PerformerConsole() {
       nodes: [gain, filter, delay, delayGain, convolver, wetGain, dryGain, ...(shaper ? [shaper] : [])],
       gains: [gain],
       levelGain: gain,
-      baseLevel: voiceGain,
+      baseLevel: rawVoiceGain,
     });
 
     window.setTimeout(() => {
@@ -783,13 +777,14 @@ export function PerformerConsole() {
       const playNext = () => {
         if (!isCurrentRun()) return;
         const elapsed = (performance.now() - startedAt) / 1000;
-        const interval = swarmInterval(elapsed);
+        const density = swarmDensity(elapsed);
         void playPooledVoice({
           profile: "swarm",
-          maxActive: Math.min(MAX_ACTIVE_VOICE_GRAINS, swarmMaxActive(elapsed)),
+          maxActive: Math.min(MAX_ACTIVE_VOICE_GRAINS, density.maxActive),
           attenuateExisting: true,
+          levelScale: density.levelScale,
         });
-        scheduleVoiceTimer(playNext, interval);
+        scheduleVoiceTimer(playNext, density.interval);
       };
       playNext();
       return true;
